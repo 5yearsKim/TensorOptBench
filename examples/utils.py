@@ -1,18 +1,43 @@
-"""Benchmark GEMM using a JSON configuration or command-line settings."""
+"""Shared workload examples, CLI configuration, and result reporting."""
 
 import argparse
 from pathlib import Path
 
+import torch
 from pydantic import ValidationError
 
 from tobench.core.config import BenchmarkConfig
-from tobench.core.runner import benchmark_from_config
+from tobench.core.result import BenchmarkResult
+from tobench.workloads import BaseWorkload, GEMM
 
 
-def parse_config(argv: list[str] | None = None) -> BenchmarkConfig:
+def create_workload(
+    work_type: str, *, device: str = "cpu", parameters: dict | None = None,
+) -> tuple[BaseWorkload, tuple[torch.Tensor, ...]]:
+    """Map a workload name to a small example and reproducible input tensors.
+
+    Extend this function when adding workload examples. Parameters optionally
+    override the hardcoded GEMM example values.
+    """
+    if work_type != "gemm":
+        raise ValueError(f"Unknown workload: {work_type}")
+    values = {"M": 128, "N": 128, "K": 128, "dtype": "float16", "seed": 0}
+    values.update(parameters or {})
+    workload = GEMM(**values)
+    generator = torch.Generator(device=device).manual_seed(workload.seed)
+    inputs = tuple(
+        torch.randn(
+            shape, dtype=getattr(torch, workload.dtype), device=device, generator=generator
+        )
+        for shape in workload.input_shapes
+    )
+    return workload, inputs
+
+
+def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, help="JSON configuration file")
-    parser.add_argument("--backend", choices=("eager", "inductor", "tvm"))
+    parser.add_argument("--work-type", "--work_type", choices=("gemm",))
     parser.add_argument("--device", choices=("cpu", "cuda"))
     parser.add_argument("--dtype", choices=("float16", "bfloat16"))
     parser.add_argument("--m", type=int)
@@ -28,8 +53,11 @@ def parse_config(argv: list[str] | None = None) -> BenchmarkConfig:
     try:
         config = BenchmarkConfig.from_json(args.config) if args.config else BenchmarkConfig()
         data = config.model_dump()
+        data["backend"] = backend
+        if args.work_type is not None:
+            data["workload"]["name"] = args.work_type
         # Only explicitly supplied flags override the file's settings.
-        for field in ("backend", "device", "output"):
+        for field in ("device", "output"):
             value = getattr(args, field)
             if value is not None:
                 data[field] = value
@@ -48,23 +76,23 @@ def parse_config(argv: list[str] | None = None) -> BenchmarkConfig:
         parser.error(str(error))
 
 
-def main() -> None:
-    config = parse_config()
-    print(f"Benchmarking {config.backend} GEMM on {config.device}...", flush=True)
-    result = benchmark_from_config(config)
-    output = Path(config.output or f"results/gemm_{config.backend}.json")
+def save_and_report(result: BenchmarkResult, config: BenchmarkConfig) -> None:
+    """Store the resolved configuration and measurements, then print a summary."""
+    result.configuration = {
+        **result.configuration,
+        "experiment": config.model_dump(mode="json"),
+        "input_generation": "torch.randn with dedicated device generator",
+    }
+    output = Path(config.output or f"results/{config.workload.name}_{config.backend}.json")
     result.save_json(output)
     print(f"Status: {result.status}")
     print(f"Results: {output}")
     if result.status != "success":
         print(f"Error: {result.error}")
         raise SystemExit(1)
+    print(f"Preparation: {result.preparation_time_seconds:.6f} s")
     print(f"Build: {result.optimization_time_seconds:.6f} s")
     print(f"Median latency: {result.median_latency_ms:.6f} ms")
     print(f"P95 latency: {result.p95_latency_ms:.6f} ms")
     print(f"Throughput: {result.throughput:.6f} {result.throughput_unit}")
     print(f"Budget overrun: {result.budget_overrun_seconds:.6f} s (not enforced)")
-
-
-if __name__ == "__main__":
-    main()

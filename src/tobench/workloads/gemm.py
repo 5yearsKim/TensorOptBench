@@ -5,10 +5,10 @@ from typing import Literal
 import torch
 from torch import Tensor
 
-from tobench.core import Workload
+from tobench.workloads.base_workload import BaseWorkload
 
 
-class GEMM(Workload):
+class GEMM(BaseWorkload):
     """Compute C[M, N] = A[M, K] @ B[K, N].
 
     The benchmark supplies contiguous row-major matrices in the configured

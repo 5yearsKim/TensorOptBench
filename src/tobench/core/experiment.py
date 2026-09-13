@@ -1,20 +1,18 @@
-"""Minimal benchmark runner using synchronized wall-clock measurements."""
+"""Coordinate preparation, backend runners, correctness, and benchmark results."""
 
-import math
 import platform
 from datetime import datetime, timezone
-from statistics import median
 from time import perf_counter
 
 import torch
 from torch import Tensor
 
-from tobench.backends.base import BackendAdapter
+from tobench.backends.base_adapter import BaseAdapter
+from tobench.backends.base_runner import BaseRunner
 
 from .budget import OptimizationBudget
-from .config import BenchmarkConfig
 from .result import BenchmarkResult
-from .workload import Workload
+from tobench.workloads.base_workload import BaseWorkload
 
 
 def _synchronize(device: torch.device) -> None:
@@ -22,45 +20,10 @@ def _synchronize(device: torch.device) -> None:
         torch.cuda.synchronize(device)
 
 
-def benchmark_from_config(config: BenchmarkConfig) -> BenchmarkResult:
-    """Create shared inputs and an adapter, then run the configured experiment.
-
-    Returns the result without writing files. Input generation uses a dedicated
-    generator and is outside all measured stages.
-    """
-    from tobench.backends.torch import TorchEagerAdapter, TorchInductorAdapter
-    from tobench.workloads import GEMM
-
-    workload = GEMM(**config.workload.model_dump(exclude={"name"}))
-    device = torch.device(config.device)
-    generator = torch.Generator(device=device).manual_seed(workload.seed)
-    inputs = tuple(
-        torch.randn(
-            shape, dtype=getattr(torch, workload.dtype), device=device, generator=generator
-        )
-        for shape in workload.input_shapes
-    )
-    if config.backend == "tvm":
-        from tobench.backends.tvm import TVMAdapter
-
-        adapter = TVMAdapter()
-    else:
-        adapter = TorchEagerAdapter() if config.backend == "eager" else TorchInductorAdapter()
-    result = benchmark(
-        adapter, workload, inputs, budget=config.budget,
-        warmup=config.runtime.warmup, repetitions=config.runtime.repetitions,
-    )
-    result.configuration = {
-        **result.configuration,
-        "experiment": config.model_dump(mode="json"),
-        "input_generation": "torch.randn with dedicated device generator",
-    }
-    return result
-
-
 def benchmark(
-    adapter: BackendAdapter,
-    workload: Workload,
+    adapter: BaseAdapter,
+    runner: BaseRunner,
+    workload: BaseWorkload,
     inputs: tuple[Tensor, ...],
     *,
     budget: OptimizationBudget | None = None,
@@ -74,7 +37,7 @@ def benchmark(
     they are not kernel-only timings. No caches are cleared and no subprocess
     is spawned. Cache/process policy and unmeasured memory are explicit in JSON.
 
-    Budgets are passed to the adapter. The runner records overrun but accepts a
+    Budgets are passed to the backend runner. The runner records overrun but accepts a
     late executable, because current adapters cannot enforce cancellation.
     Operational failures return an error result; invalid arguments raise.
     """
@@ -103,7 +66,7 @@ def benchmark(
 
     rtol, atol = (1e-3, 1e-3) if workload.dtype == "float16" else (1e-2, 1e-2)
     result = BenchmarkResult(
-        backend=type(adapter).__name__,
+        backend=type(runner).__name__,
         workload=workload.to_config(),
         configuration={
             "warmup": warmup,
@@ -111,7 +74,7 @@ def benchmark(
             "budget_seconds": budget.max_time_seconds if budget is not None else None,
             "budget_policy": "report_overrun_and_continue",
             "timing_method": "synchronized_wall_clock",
-            "latency_scope": "adapter.run including dispatch, interop, and synchronization",
+            "latency_scope": "runner.run including dispatch, interop, and synchronization",
             "p95_method": "nearest_rank",
             "cache_policy": "uncontrolled",
             "process_isolation": False,
@@ -135,62 +98,52 @@ def benchmark(
         },
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
+    if runner.benchmarker is None:
+        raise ValueError("benchmark requires a runner with an injected Benchmarker")
+    benchmarker = runner.benchmarker
+    benchmarker.reset()
     stage = "prepare"
     try:
-        adapter.prepare(workload, inputs)
-        metadata = adapter.collect_metadata()
+        _synchronize(device)
+        started = perf_counter()
+        try:
+            prepared = adapter.prepare(workload, inputs)
+            _synchronize(device)
+        finally:
+            result.preparation_time_seconds = perf_counter() - started
+        metadata = runner.collect_metadata(prepared)
         result.backend_metadata = metadata
         result.backend = metadata.get("backend", result.backend)
         result.backend_version = metadata.get("backend_version")
         result.budget_enforced = metadata.get("budget_enforced", False)
 
         stage = "build"
-        _synchronize(device)
-        started = perf_counter()
-        try:
-            executable = adapter.build(budget=budget)
-            _synchronize(device)
-        finally:
-            result.optimization_time_seconds = perf_counter() - started
-            if budget is not None:
-                result.budget_overrun_seconds = max(
-                    0.0, result.optimization_time_seconds - budget.max_time_seconds
-                )
+        executable = runner.build(prepared, budget=budget)
 
         stage = "correctness"
         with torch.inference_mode():
             reference = workload(*inputs)
-        output = adapter.run(executable, inputs)
-        _synchronize(device)
+        output = runner.run(executable, measure=False)
+        runner.synchronize(executable)
         torch.testing.assert_close(output, reference, rtol=rtol, atol=atol)
         del output, reference
 
-        stage = "warmup"
-        for _ in range(warmup):
-            adapter.run(executable, inputs)
-        _synchronize(device)
-
         stage = "runtime"
-        for _ in range(repetitions):
-            _synchronize(device)
-            started = perf_counter()
-            output = adapter.run(executable, inputs)
-            _synchronize(device)
-            elapsed_ms = (perf_counter() - started) * 1000.0
-            del output
-            if elapsed_ms <= 0:
-                raise RuntimeError("timer returned a non-positive latency")
-            result.latency_samples_ms.append(elapsed_ms)
-
-        result.median_latency_ms = median(result.latency_samples_ms)
-        ordered = sorted(result.latency_samples_ms)
-        result.p95_latency_ms = ordered[math.ceil(0.95 * repetitions) - 1]
+        summary = runner.benchmark_run(executable, warmup=warmup, repetitions=repetitions)
+        result.median_latency_ms = summary["median_latency_ms"]
+        result.p95_latency_ms = summary["p95_latency_ms"]
         flop_count = getattr(workload, "flop_count", None)
         if flop_count is not None:
             result.throughput = flop_count / (result.median_latency_ms * 1e-3) / 1e12
             result.throughput_unit = "TFLOP/s"
         result.status = "success"
     except Exception as error:
+        if stage == "runtime":
+            stage = benchmarker.phase
         result.status = "correctness_failed" if stage == "correctness" else "error"
         result.error = {"stage": stage, "type": type(error).__name__, "message": str(error)}
+    finally:
+        result.optimization_time_seconds = benchmarker.optimization_time_seconds
+        result.budget_overrun_seconds = benchmarker.budget_overrun_seconds
+        result.latency_samples_ms = list(benchmarker.latency_samples_ms)
     return result

@@ -1,5 +1,6 @@
-"""Shared interface for tensor compiler backends."""
+"""Backend preparation and execution interfaces."""
 
-from .base import BackendAdapter
+from .base_adapter import BaseAdapter
+from .base_runner import BaseRunner
 
-__all__ = ["BackendAdapter"]
+__all__ = ["BaseAdapter", "BaseRunner"]

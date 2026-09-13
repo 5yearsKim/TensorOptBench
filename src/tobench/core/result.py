@@ -29,6 +29,7 @@ class BenchmarkResult(BaseModel):
     status: Literal["success", "error", "correctness_failed"] = "error"
     backend_version: str | None = None
     backend_metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    preparation_time_seconds: NonNegativeFloat | None = None
     optimization_time_seconds: NonNegativeFloat | None = None
     budget_enforced: bool = False
     budget_overrun_seconds: NonNegativeFloat | None = None

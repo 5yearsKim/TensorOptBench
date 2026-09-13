@@ -7,14 +7,14 @@ from unittest.mock import patch
 
 import torch
 
-from tobench.backends.tvm import TVMAdapter
+from tobench.backends.tvm import TVMAdapter, TVMRunner
 from tobench.workloads import GEMM
 
 
 class TVMAdapterContractTests(unittest.TestCase):
-    def test_build_requires_prepare(self):
-        with self.assertRaisesRegex(RuntimeError, "prepare"):
-            TVMAdapter().build(budget=None)
+    def test_build_requires_prepared_result(self):
+        with self.assertRaisesRegex(TypeError, "TVMPreparedInput"):
+            TVMRunner().build(None)
 
     def test_missing_dependency_has_install_hint(self):
         error = ModuleNotFoundError("No module named 'tvm'", name="tvm")
@@ -49,11 +49,13 @@ class TVMAdapterIntegrationTests(unittest.TestCase):
                     for s in workload.input_shapes
                 )
                 adapter = TVMAdapter(target="llvm")
-                adapter.prepare(workload, inputs)
-                executable = adapter.build(budget=None)
+                prepared = adapter.prepare(workload, inputs)
+                self.assertIsNotNone(prepared.mod)
+                runner = TVMRunner()
+                executable = runner.build(prepared)
                 for scale in (1, 2):
                     run_inputs = (inputs[0] * scale, inputs[1])
-                    output = adapter.run(executable, run_inputs)
+                    output = runner.run(executable, run_inputs)
                     # Independent, high-precision reference on the quantized inputs.
                     expected = (run_inputs[0].double() @ run_inputs[1].double()).to(
                         getattr(torch, dtype)
@@ -61,8 +63,8 @@ class TVMAdapterIntegrationTests(unittest.TestCase):
                     torch.testing.assert_close(output, expected)
                     self.assertEqual(output.dtype, getattr(torch, dtype))
                 with self.assertRaisesRegex(ValueError, "match"):
-                    adapter.run(executable, (inputs[0][:1], inputs[1]))
-                metadata = json.loads(json.dumps(adapter.collect_metadata()))
+                    runner.run(executable, (inputs[0][:1], inputs[1]))
+                metadata = json.loads(json.dumps(runner.collect_metadata(prepared)))
                 self.assertEqual(metadata["backend"], "tvm")
                 self.assertFalse(metadata["budget_enforced"])
                 self.assertFalse(metadata["configuration"]["autotuning"])

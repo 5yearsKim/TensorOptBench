@@ -8,9 +8,8 @@ from pathlib import Path
 import torch
 from pydantic import ValidationError
 
-from examples.benchmark_gemm import parse_config
+from examples.utils import create_workload, parse_config
 from tobench.core.config import BenchmarkConfig
-from tobench.core.runner import benchmark_from_config
 
 
 class ConfigTests(unittest.TestCase):
@@ -24,11 +23,11 @@ class ConfigTests(unittest.TestCase):
             path = Path(directory) / "config.json"
             path.write_text(json.dumps(data))
             config = BenchmarkConfig.from_json(path)
-            overridden = parse_config(["--config", str(path), "--backend", "eager", "--m", "9"])
+            overridden = parse_config("tvm", ["--config", str(path), "--m", "9"])
         self.assertEqual(config.workload.M, 3)
         self.assertEqual(config.runtime.warmup, 0)
         self.assertEqual(config.budget.max_time_seconds, 60)
-        self.assertEqual(overridden.backend, "eager")
+        self.assertEqual(overridden.backend, "tvm")
         self.assertEqual(overridden.workload.M, 9)
         self.assertEqual(overridden.workload.N, 5)
         self.assertEqual(overridden.workload.dtype, "bfloat16")
@@ -48,23 +47,28 @@ class ConfigTests(unittest.TestCase):
             BenchmarkConfig.model_validate_json('{"backend":')
 
     def test_default_cli_and_legacy_flags(self):
-        self.assertEqual(parse_config([]), BenchmarkConfig())
-        config = parse_config(["--m", "8", "--repetitions", "2", "--budget-seconds", "1"])
+        self.assertEqual(parse_config("inductor", []), BenchmarkConfig(backend="inductor"))
+        config = parse_config("inductor", ["--m", "8", "--repetitions", "2", "--budget-seconds", "1"])
         self.assertEqual(config.workload.M, 8)
         self.assertEqual(config.runtime.repetitions, 2)
         self.assertEqual(config.budget.max_time_seconds, 1)
 
-    def test_configured_run_preserves_rng_and_records_resolved_config(self):
-        config = BenchmarkConfig.model_validate({
-            "workload": {"M": 2, "N": 3, "K": 4},
-            "runtime": {"warmup": 0, "repetitions": 1},
-        })
+    def test_workload_factory_preserves_rng_and_uses_parameters(self):
         before = torch.random.get_rng_state().clone()
-        result = benchmark_from_config(config)
-        self.assertEqual(result.status, "success", result.error)
-        self.assertEqual(result.workload["N"], 3)
-        self.assertEqual(result.configuration["experiment"], config.model_dump(mode="json"))
+        workload, inputs = create_workload("gemm", parameters={"M": 2, "N": 3, "K": 4})
+        self.assertEqual(workload.N, 3)
+        self.assertEqual(tuple(inputs[0].shape), (2, 4))
+        self.assertEqual(tuple(inputs[1].shape), (4, 3))
         self.assertTrue(torch.equal(before, torch.random.get_rng_state()))
+        _, repeated = create_workload("gemm", parameters={"M": 2, "N": 3, "K": 4})
+        self.assertTrue(all(torch.equal(a, b) for a, b in zip(inputs, repeated)))
+        with self.assertRaisesRegex(ValueError, "Unknown workload"):
+            create_workload("unknown")
+
+    def test_work_type_argument_aliases(self):
+        for flag in ("--work-type", "--work_type"):
+            config = parse_config("inductor", [flag, "gemm"])
+            self.assertEqual(config.workload.name, "gemm")
 
 
 if __name__ == "__main__":

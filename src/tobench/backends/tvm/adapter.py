@@ -1,21 +1,15 @@
-"""Compile PyTorch workloads through TVM's Relax frontend."""
+"""Prepare Relax IR and target state from PyTorch workload code."""
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
 from importlib import import_module
 from typing import Any
-
-from tobench.core.budget import OptimizationBudget
 
 import torch
 from torch import Tensor
 
-from tobench.backends.base import BackendAdapter
-from tobench.core import Workload
-
-
-def _signature(inputs: Sequence[Tensor]) -> tuple:
-    return tuple((tuple(x.shape), x.stride(), x.dtype, x.device) for x in inputs)
+from tobench.backends.base_adapter import BaseAdapter
+from tobench.workloads import BaseWorkload
+from .prepared import TVMPreparedInput
 
 
 def _convert_matmul(node: Any, importer: Any) -> Any:
@@ -33,35 +27,15 @@ def _convert_matmul(node: Any, importer: Any) -> Any:
     return result
 
 
-@dataclass
-class TVMExecutable:
-    """VM and input contract retained for execution without recompilation."""
-
-    vm: Any
-    device: Any
-    input_signature: tuple
-
-
-class TVMAdapter(BackendAdapter):
-    """Export an nn.Module to Relax and compile for LLVM or CUDA.
-
-    TVM is loaded during prepare. This initial adapter uses TVM's default
-    compilation pipeline without MetaSchedule search. Hard wall-clock budgets
-    and optimization progress reporting are unsupported. The runner owns build
-    timing and budget overrun reporting. Callers must arrange cache/process isolation.
-    """
-
+class TVMAdapter(BaseAdapter[TVMPreparedInput]):
     def __init__(self, target: str | None = None) -> None:
         self.target = target
-        self._tvm: Any = None
-        self._target: Any = None
-        self._device: Any = None
-        self._workload: Workload | None = None
-        self._inputs: tuple[Tensor, ...] = ()
 
-    def prepare(self, workload: Workload, inputs: Sequence[Tensor]) -> None:
-        if not isinstance(workload, Workload):
-            raise TypeError("workload must be a Workload module")
+    @torch.no_grad()
+    def prepare(self, workload: BaseWorkload, inputs: Sequence[Tensor]) -> TVMPreparedInput:
+        """Export/import the graph without compiling a VM executable."""
+        if not isinstance(workload, BaseWorkload):
+            raise TypeError("workload must be a BaseWorkload module")
         if not isinstance(inputs, (tuple, list)) or not inputs:
             raise TypeError("inputs must be a non-empty tuple or list of tensors")
         if not all(isinstance(x, Tensor) for x in inputs):
@@ -97,25 +71,9 @@ class TVMAdapter(BackendAdapter):
         if not tvm.runtime.enabled(expected_kind):
             raise RuntimeError(f"Installed TVM does not support {expected_kind}")
 
-        self._tvm = tvm
-        self._target = target
-        self._device = tvm.device(device.type, device.index or 0)
-        self._workload = workload.eval()
-        self._inputs = tuple(inputs)
-
-    @torch.no_grad()
-    def build(
-        self,
-        budget: OptimizationBudget | None,
-        report_progress: Callable[[float, float], None] | None = None,
-    ) -> TVMExecutable:
-        """Export, lower, compile, and perform the first invocation in build."""
-        if self._workload is None:
-            raise RuntimeError("prepare must be called before build")
-        from tvm import relax
         from tvm.relax.frontend.torch import from_exported_program
 
-        exported = torch.export.export(self._workload, self._inputs)
+        exported = torch.export.export(workload.eval(), tuple(inputs))
         mod = from_exported_program(
             exported,
             unwrap_unit_return_tuple=True,
@@ -124,48 +82,7 @@ class TVMAdapter(BackendAdapter):
                 "matmul.default": _convert_matmul,
             },
         )
-        compiled = relax.build(mod, target=self._target)
-        executable = TVMExecutable(
-            vm=relax.VirtualMachine(compiled, self._device),
-            device=self._device,
-            input_signature=_signature(self._inputs),
+        return TVMPreparedInput(
+            mod=mod, inputs=tuple(inputs), target=target,
+            device=tvm.device(device.type, device.index or 0), tvm=tvm,
         )
-        self.run(executable, self._inputs)
-        executable.device.sync()
-        return executable
-
-    @torch.no_grad()
-    def run(self, executable: TVMExecutable, inputs: Sequence[Tensor]) -> Tensor:
-        """Share tensors through DLPack and execute the already built VM.
-
-        CUDA work is synchronized at the framework boundaries for correctness
-        across PyTorch and TVM streams. These synchronizations are part of run.
-        """
-        if _signature(inputs) != executable.input_signature:
-            raise ValueError("inputs must match the shapes, strides, dtype, and device used in build")
-        if inputs[0].is_cuda:
-            torch.cuda.synchronize(inputs[0].device)
-        tvm_inputs = tuple(self._tvm.runtime.from_dlpack(x.detach()) for x in inputs)
-        output = executable.vm["main"](*tvm_inputs)
-        if inputs[0].is_cuda:
-            executable.device.sync()
-        return torch.from_dlpack(output)
-
-    def collect_metadata(self) -> dict[str, Any]:
-        return {
-            "backend": "tvm",
-            "backend_version": self._tvm.__version__ if self._tvm else None,
-            "budget_enforced": False,
-            "progress_reporting": False,
-            "configuration": {
-                "target": str(self._target) if self._target is not None else self.target,
-                "frontend": "torch.export -> relax",
-                "pipeline": "default",
-                "autotuning": False,
-                "matmul_accumulation_dtype": "float32 for float16/bfloat16",
-                "eval_mode": True,
-                "grad_enabled": False,
-                "tensor_interop": "dlpack",
-                "cuda_boundary_synchronization": True,
-            },
-        }

@@ -6,7 +6,7 @@ from typing import Literal
 from torch import Tensor, nn
 
 
-class Workload(nn.Module, ABC):
+class BaseWorkload(nn.Module, ABC):
     """A computation with shared input-generation configuration.
 
     Concrete workloads define their computation in ``forward``. Construction

@@ -4,7 +4,7 @@ import unittest
 import torch
 from torch import nn
 
-from tobench.core import Workload
+from tobench.workloads.base_workload import BaseWorkload
 from tobench.workloads import GEMM
 
 
@@ -58,7 +58,7 @@ class GEMMTests(unittest.TestCase):
 
     def test_is_pytorch_workload(self):
         workload = GEMM(M=2, N=2, K=3)
-        self.assertIsInstance(workload, Workload)
+        self.assertIsInstance(workload, BaseWorkload)
         self.assertIsInstance(workload, nn.Module)
 
     def test_forward_known_rectangular_product(self):

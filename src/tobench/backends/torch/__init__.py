@@ -1,6 +1,8 @@
-"""PyTorch eager and TorchInductor adapters."""
+"""PyTorch preparation and eager/Inductor runners."""
 
-from .eager import TorchEagerAdapter
-from .inductor import TorchInductorAdapter
+from .adapter import TorchAdapter
+from .prepared import TorchPreparedInput, TorchExecutable
+from .eager_runner import TorchEagerRunner
+from .inductor_runner import TorchInductorRunner
 
-__all__ = ["TorchEagerAdapter", "TorchInductorAdapter"]
+__all__ = ["TorchAdapter", "TorchPreparedInput", "TorchExecutable", "TorchEagerRunner", "TorchInductorRunner"]

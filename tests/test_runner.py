@@ -134,6 +134,19 @@ class RunnerTests(unittest.TestCase):
         self.assertIsNone(data["peak_device_memory_bytes"])
         self.assertIsNone(data["peak_host_memory_bytes"])
         self.assertEqual(data["configuration"]["cache_policy"], "uncontrolled")
+        self.assertFalse(data["configuration"]["process_isolation"])
+
+    def test_launcher_environment_is_recorded(self):
+        with patch.dict(
+            "os.environ",
+            {"TOBENCH_PROCESS_ISOLATED": "1", "TOBENCH_CACHE_POLICY": "fresh_temporary"},
+        ):
+            result = benchmark(
+                TorchAdapter(), TorchEagerRunner(benchmarker=Benchmarker()),
+                self.workload, self.inputs, warmup=0, repetitions=1,
+            )
+        self.assertTrue(result.configuration["process_isolation"])
+        self.assertEqual(result.configuration["cache_policy"], "fresh_temporary")
 
     def test_invalid_arguments(self):
         for kwargs in ({"warmup": -1}, {"repetitions": 0}, {"repetitions": True}):

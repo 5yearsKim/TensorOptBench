@@ -3,25 +3,21 @@
 import importlib.util
 import json
 import unittest
-from unittest.mock import patch
 
 import torch
 
-from tobench.backends.tvm import TVMAdapter, TVMRunner
 from tobench.workloads import GEMM
 
+TVM_AVAILABLE = importlib.util.find_spec("tvm") is not None
+if TVM_AVAILABLE:
+    from tobench.backends.tvm import TVMAdapter, TVMRunner
 
+
+@unittest.skipUnless(TVM_AVAILABLE, "optional TVM dependency not installed")
 class TVMAdapterContractTests(unittest.TestCase):
     def test_build_requires_prepared_result(self):
         with self.assertRaisesRegex(TypeError, "TVMPreparedInput"):
             TVMRunner().build(None)
-
-    def test_missing_dependency_has_install_hint(self):
-        error = ModuleNotFoundError("No module named 'tvm'", name="tvm")
-        inputs = (torch.ones(2, 3), torch.ones(3, 2))
-        with patch("tobench.backends.tvm.adapter.import_module", side_effect=error):
-            with self.assertRaisesRegex(ImportError, r"\[tvm\]"):
-                TVMAdapter().prepare(GEMM(2, 2, 3), inputs)
 
     def test_invalid_inputs(self):
         for inputs in ([], [1], [torch.ones(3, 2).T]):
@@ -30,7 +26,7 @@ class TVMAdapterContractTests(unittest.TestCase):
                     TVMAdapter().prepare(GEMM(2, 2, 3), inputs)
 
 
-@unittest.skipUnless(importlib.util.find_spec("tvm"), "optional TVM dependency not installed")
+@unittest.skipUnless(TVM_AVAILABLE, "optional TVM dependency not installed")
 class TVMAdapterIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -11,34 +11,6 @@ from tobench.core.result import BenchmarkResult
 from tobench.workloads import BaseWorkload, GEMM, RMSNormLinear
 
 
-def create_workload(
-    work_type: str, *, device: str = "cpu", parameters: dict | None = None,
-) -> tuple[BaseWorkload, tuple[torch.Tensor, ...]]:
-    """Map a workload name to a small example and reproducible input tensors.
-
-    Extend this function when adding workload examples. Parameters optionally
-    override the hardcoded values for the selected operator.
-    """
-    if work_type == "gemm":
-        factory = GEMM
-        values = {"M": 128, "N": 128, "K": 128, "dtype": "float16", "seed": 0}
-    elif work_type == "rmsnorm_linear":
-        factory = RMSNormLinear
-        values = {"M": 16, "N": 406, "K": 4096, "dtype": "float16", "seed": 0, "eps": 1e-6}
-    else:
-        raise ValueError(f"Unknown workload: {work_type}")
-    values.update(parameters or {})
-    workload = factory(**values)
-    generator = torch.Generator(device=device).manual_seed(workload.seed)
-    inputs = tuple(
-        torch.randn(
-            shape, dtype=getattr(torch, workload.dtype), device=device, generator=generator
-        )
-        for shape in workload.input_shapes
-    )
-    return workload, inputs
-
-
 def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, help="JSON configuration file")
@@ -57,6 +29,14 @@ def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig
     parser.add_argument("--correctness", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--rtol", type=float)
     parser.add_argument("--atol", type=float)
+    if backend == "tvm_metaschedule":
+        parser.add_argument("--max-trials-global", type=int)
+        parser.add_argument("--max-trials-per-task", type=int)
+        parser.add_argument("--num-trials-per-iter", type=int)
+        parser.add_argument("--tuning-seed", type=int)
+        parser.add_argument("--cost-model", choices=("xgb", "random"))
+        parser.add_argument("--work-dir")
+        parser.add_argument("--target")
     args = parser.parse_args(argv)
 
     try:
@@ -85,9 +65,48 @@ def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig
         for field in ("rtol", "atol"):
             if getattr(args, field) is not None:
                 data["correctness"][field] = getattr(args, field)
+        if backend == "tvm_metaschedule":
+            for flag, field in (
+                ("max_trials_global", "max_trials_global"),
+                ("max_trials_per_task", "max_trials_per_task"),
+                ("num_trials_per_iter", "num_trials_per_iter"),
+                ("tuning_seed", "seed"), ("cost_model", "cost_model"),
+                ("work_dir", "work_dir"), ("target", "target"),
+            ):
+                value = getattr(args, flag)
+                if value is not None:
+                    data["metaschedule"][field] = value
         return BenchmarkConfig.model_validate(data)
     except (OSError, ValidationError) as error:
         parser.error(str(error))
+
+def create_workload(
+    work_type: str, *, device: str = "cpu", parameters: dict | None = None,
+) -> tuple[BaseWorkload, tuple[torch.Tensor, ...]]:
+    """Map a workload name to a small example and reproducible input tensors.
+
+    Extend this function when adding workload examples. Parameters optionally
+    override the hardcoded values for the selected operator.
+    """
+    if work_type == "gemm":
+        factory = GEMM
+        values = {"M": 128, "N": 128, "K": 128, "dtype": "float16", "seed": 0}
+    elif work_type == "rmsnorm_linear":
+        factory = RMSNormLinear
+        values = {"M": 16, "N": 406, "K": 4096, "dtype": "float16", "seed": 0, "eps": 1e-6}
+    else:
+        raise ValueError(f"Unknown workload: {work_type}")
+    values.update(parameters or {})
+    workload = factory(**values)
+    generator = torch.Generator(device=device).manual_seed(workload.seed)
+    inputs = tuple(
+        torch.randn(
+            shape, dtype=getattr(torch, workload.dtype), device=device, generator=generator
+        )
+        for shape in workload.input_shapes
+    )
+    return workload, inputs
+
 
 
 def save_and_report(result: BenchmarkResult, config: BenchmarkConfig) -> None:

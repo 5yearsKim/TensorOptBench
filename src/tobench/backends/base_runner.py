@@ -55,7 +55,7 @@ class BaseRunner(ABC, Generic[Prepared, Executable]):
 
     @abstractmethod
     def _build(self, prepared: Prepared, budget: OptimizationBudget | None) -> Executable:
-        """Finish compilation and lazy initialization without recording run samples."""
+        """Compile and materialize an executable without recording run samples."""
         ...
 
     @abstractmethod

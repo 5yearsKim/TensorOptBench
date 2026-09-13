@@ -11,7 +11,6 @@ class TVMPreparedInput:
     inputs: tuple[Tensor, ...]
     target: Any
     device: Any
-    tvm: Any
 
 
 @dataclass(frozen=True)
@@ -19,5 +18,4 @@ class TVMExecutable:
     vm: Any
     inputs: tuple[Tensor, ...]
     device: Any
-    tvm: Any
     input_signature: tuple

@@ -1,5 +1,6 @@
 """Coordinate preparation, backend runners, correctness, and benchmark results."""
 
+import os
 import platform
 from datetime import datetime, timezone
 from time import perf_counter
@@ -38,8 +39,8 @@ def benchmark(
 
     Prepare, correctness checking, and warmup are outside the build timer.
     Latencies include adapter dispatch, interop, and synchronization overhead;
-    they are not kernel-only timings. No caches are cleared and no subprocess
-    is spawned. Cache/process policy and unmeasured memory are explicit in JSON.
+    they are not kernel-only timings. Backend imports happen before this
+    function and are therefore outside all reported timing intervals.
 
     Budgets are passed to the backend runner. The runner records overrun but accepts a
     late executable, because current adapters cannot enforce cancellation.
@@ -80,8 +81,8 @@ def benchmark(
             "timing_method": "synchronized_wall_clock",
             "latency_scope": "runner.run including dispatch, interop, and synchronization",
             "p95_method": "nearest_rank",
-            "cache_policy": "uncontrolled",
-            "process_isolation": False,
+            "cache_policy": os.environ.get("TOBENCH_CACHE_POLICY", "uncontrolled"),
+            "process_isolation": os.environ.get("TOBENCH_PROCESS_ISOLATED") == "1",
             "memory_measurement": "not_implemented",
             "correctness": correctness.model_dump(mode="json"),
             "inputs": [
@@ -122,7 +123,11 @@ def benchmark(
         result.budget_enforced = metadata.get("budget_enforced", False)
 
         stage = "build"
-        executable = runner.build(prepared, budget=budget)
+        try:
+            executable = runner.build(prepared, budget=budget)
+        finally:
+            # Retain tuning artifact paths even when search or compilation fails.
+            result.backend_metadata = runner.collect_metadata(prepared)
 
         if correctness.enabled:
             stage = "correctness_reference"

@@ -22,8 +22,8 @@ The actual resolved values are stored in the correctness report. CLI overrides
 are available in both examples:
 
 ```bash
-uv run python examples/torch_compile.py --work-type gemm --rtol 0.001 --atol 0.001
-uv run --extra tvm python examples/tvm_compile.py --config configs/rmsnorm_linear.json
+uv run python scripts/run_benchmark.py --backend inductor --work-type gemm --rtol 0.001 --atol 0.001
+uv run --extra tvm python scripts/run_benchmark.py --backend tvm --config configs/rmsnorm_linear.json
 ```
 
 Use `--no-correctness` to skip validation explicitly; the report then says
@@ -46,12 +46,28 @@ do not change the existing RMSNormLinear tolerance or repair its TVM discrepancy
 Tensor compiler benchmarks with PyTorch workloads, backend-specific preparation
 and execution, and optional benchmark instrumentation.
 
+Optional backend packages use ordinary imports. Importing `tobench` or the Torch
+backend does not require TVM; importing `tobench.backends.tvm` does. A missing
+TVM installation reports the optional-extra install command.
+
+Use `scripts/run_benchmark.py` as the measurement entry point. It starts a fresh
+Python process for every experiment, imports the selected backend before any
+metric begins, and gives TorchInductor and Triton new temporary cache directories.
+The cache tree is deleted after the worker exits. Results record
+`process_isolation=true` and `cache_policy=fresh_temporary`. Directly running an
+example remains useful while developing, but records an uncontrolled cache and
+no process isolation.
+
+Results distinguish `preparation_time_seconds` and
+`optimization_time_seconds`. For TVM these mean PyTorch export plus Relax import,
+and Relax compilation. Python and backend import time is intentionally excluded.
+
 Run an experiment from [configs/gemm.json](configs/gemm.json):
 
 ```bash
-uv run python examples/torch_compile.py --work-type gemm
-uv run python examples/torch_compile.py --config configs/gemm.json
-uv run --extra tvm python examples/tvm_compile.py --work-type gemm
+uv run python scripts/run_benchmark.py --backend inductor --work-type gemm
+uv run python scripts/run_benchmark.py --backend inductor --config configs/gemm.json
+uv run --extra tvm python scripts/run_benchmark.py --backend tvm --work-type gemm
 ```
 
 The JSON separates `workload`, `backend`, `device`, `budget`, and `runtime`
@@ -79,6 +95,7 @@ src/tobench/
 │   │   └── inductor_runner.py
 │   └── tvm/
 │       ├── adapter.py
+│       ├── metaschedule_runner.py
 │       ├── prepared.py
 │       └── runner.py
 ├── benchmarking/benchmarker.py
@@ -89,7 +106,10 @@ src/tobench/
 │   └── result.py
 └── workloads/
     ├── base_workload.py
-    └── gemm.py
+    ├── gemm.py
+    └── rmsnorm_linear.py
+scripts/
+└── run_benchmark.py
 ```
 
 `BaseAdapter[Prepared]` only prepares a workload. Its result is a backend-specific
@@ -139,13 +159,13 @@ the PyTorch module and imports it into Relax IR, returning `TVMPreparedInput`.
 runner API with `TVMRunner`, or run the example:
 
 ```bash
-uv run --extra tvm python examples/tvm_compile.py --device cpu --dtype bfloat16
-uv run python examples/torch_compile.py
+uv run --extra tvm python scripts/run_benchmark.py --backend tvm --device cpu --dtype bfloat16
+uv run python scripts/run_benchmark.py --backend inductor
 ```
 
 TVM GEMM preserves FP16/BF16 output dtype after FP32 accumulation. Tensor interop
 uses DLPack without NumPy copies; CUDA framework boundaries synchronize for
-correctness. MetaSchedule search and hard budget cancellation are not implemented.
+correctness. MetaSchedule search is available through the separate runner below. Hard budget cancellation is not implemented.
 
 The examples own workload/input creation and backend selection. Shared helpers
 in `examples/utils.py` provide `create_workload(work_type)`, argument parsing,
@@ -180,9 +200,10 @@ correctness checking, and warmup are outside measured build/runtime samples.
 Correctness uses eager PyTorch with FP16 `rtol=atol=1e-3` and BF16 `rtol=atol=1e-2`.
 Incorrect outputs receive no runtime metrics.
 
-Caches and process isolation are uncontrolled and labeled in JSON; build times
-can reflect cache reuse. Host/device memory metrics remain `null`. CPU execution
-is tested; CUDA execution and timing have not been tested on hardware.
+The subprocess launcher isolates process state and creates fresh TorchInductor
+and Triton caches. Direct example runs are labeled uncontrolled and can reflect
+cache reuse. Host/device memory metrics remain `null`. CPU execution is tested;
+CUDA execution and timing have not been tested on hardware.
 
 Configuration, budget, and result schemas use strict Pydantic validation.
 `OptimizationBudget(max_time_seconds=60)` is immutable. Results validate field
@@ -217,8 +238,8 @@ cast before projection. This defines the numerical contract explicitly; no
 external graph library's unspecified epsilon or rounding rules are assumed.
 
 ```bash
-uv run python examples/torch_compile.py --work-type rmsnorm_linear
-uv run --extra tvm python examples/tvm_compile.py --config configs/rmsnorm_linear.json
+uv run python scripts/run_benchmark.py --backend inductor --work-type rmsnorm_linear
+uv run --extra tvm python scripts/run_benchmark.py --backend tvm --config configs/rmsnorm_linear.json
 ```
 
 Dimensions remain configurable through `--m`, `--n`, and `--k`. Changing
@@ -249,3 +270,49 @@ uv run --extra tvm python scripts/diagnose_rmsnorm_linear.py
 
 The script writes comparison statistics and Relax/lowered IR under
 `results/rmsnorm_diagnosis/`. It does not alter workload semantics or tolerances.
+
+TVM MetaSchedule tuning
+-----------------------
+
+Install the tuning dependencies and run the dedicated example:
+
+```bash
+uv run --extra tvm-tuning python scripts/run_benchmark.py --backend tvm_metaschedule --config configs/gemm_metaschedule.json
+uv run --extra tvm-tuning python scripts/run_benchmark.py --backend tvm_metaschedule --device cuda --max-trials-global 256
+```
+
+`TVMMetaScheduleRunner` shares `TVMAdapter` and the existing VM execution path.
+Its measured build lowers/fuses Relax into TIR, runs MetaSchedule search,
+compiles with the resulting database, and completes the first invocation.
+The original `examples/tvm_compile.py` remains the untuned comparison.
+The integration follows TVM's
+[Relax MetaSchedule APIs](https://tvm.apache.org/docs/reference/api/python/meta_schedule.html).
+
+Configure the `metaschedule` JSON object or use `--max-trials-global`,
+`--max-trials-per-task`, `--num-trials-per-iter`, `--tuning-seed`,
+`--cost-model xgb|random`, `--work-dir`, and `--target`.
+XGBoost is the default cost model; `random` retains measured schedule search
+but replaces the learned cost model. A target with attributes must use a JSON
+string in TVM 0.26, e.g. `--target '{"kind":"llvm","num-cores":1}'`.
+LLVM targets without `num-cores` use PyTorch's configured thread count.
+
+By default, each build creates and retains a fresh database under
+`results/metaschedule/run-*`. An explicit `--work-dir` reuses existing records
+and warm-starts further tuning; it does not skip search. Backend metadata records
+the effective target, tuning settings, database path, record count, and reuse
+policy. A build with no valid records fails instead of reporting an untuned
+executable as tuned. Individual functions without matching records may still
+use TVM's fallback compilation; a nonempty database does not imply full coverage.
+
+Trial counts limit search. `--budget-seconds` still reports total build overrun
+without enforcing a wall-clock deadline; a small trial count can take longer
+than the requested budget. Optimization trajectories are not yet collected.
+The subprocess launcher also isolates MetaSchedule process state. Its tuning
+database is fresh by default; an explicit `--work-dir` intentionally reuses that
+database. Existing timing and memory limitations described above still apply.
+
+Run the optional real-search integration test with:
+
+```bash
+OMP_NUM_THREADS=1 TOBENCH_TEST_TUNING=1 uv run --extra tvm-tuning python -m unittest discover -s tests -p test_tvm_metaschedule.py -v
+```

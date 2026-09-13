@@ -11,6 +11,7 @@ dependencies = [
 
 [project.optional-dependencies]
 tvm = ["apache-tvm>=0.26,<0.27"]
+tvm-tuning = ["apache-tvm>=0.26,<0.27", "xgboost", "psutil", "cloudpickle"]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -51,13 +51,24 @@ class RMSNormLinearConfig(_ConfigModel):
     eps: float = Field(default=1e-6, gt=0, allow_inf_nan=False)
 
 
+class MetaScheduleConfig(_ConfigModel):
+    max_trials_global: int = Field(default=256, gt=0)
+    max_trials_per_task: int | None = Field(default=None, gt=0)
+    num_trials_per_iter: int = Field(default=64, gt=0)
+    seed: int = Field(default=0, ge=0, le=2147483647)
+    cost_model: Literal["xgb", "random"] = "xgb"
+    work_dir: str | None = Field(default=None, min_length=1)
+    target: str | None = Field(default=None, min_length=1)
+
+
 class BenchmarkConfig(_ConfigModel):
     """One backend/workload experiment; paths are relative to the working directory."""
 
     workload: GEMMConfig | RMSNormLinearConfig = Field(
         default_factory=GEMMConfig, discriminator="name"
     )
-    backend: Literal["eager", "inductor", "tvm"] = "eager"
+    backend: Literal["eager", "inductor", "tvm", "tvm_metaschedule"] = "eager"
+    metaschedule: MetaScheduleConfig = Field(default_factory=MetaScheduleConfig)
     device: Literal["cpu", "cuda"] = "cpu"
     budget: OptimizationBudget = Field(default_factory=OptimizationBudget)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)

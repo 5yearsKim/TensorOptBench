@@ -1,0 +1,14 @@
+{
+  "backend": "tvm_metaschedule",
+  "device": "cpu",
+  "workload": {"name": "gemm", "M": 128, "N": 128, "K": 128, "dtype": "float16"},
+  "metaschedule": {
+    "max_trials_global": 256,
+    "max_trials_per_task": 256,
+    "num_trials_per_iter": 64,
+    "seed": 0,
+    "cost_model": "xgb"
+  },
+  "budget": {"max_time_seconds": 60},
+  "runtime": {"warmup": 20, "repetitions": 100}
+}

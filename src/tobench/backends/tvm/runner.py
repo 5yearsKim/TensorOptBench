@@ -5,6 +5,8 @@ from typing import Any
 
 import torch
 from torch import Tensor
+import tvm
+from tvm import relax
 
 from tobench.backends.base_runner import BaseRunner
 from tobench.core.budget import OptimizationBudget
@@ -19,17 +21,18 @@ class TVMRunner(BaseRunner[TVMPreparedInput, TVMExecutable]):
     def _build(self, prepared: TVMPreparedInput, budget: OptimizationBudget | None) -> TVMExecutable:
         if not isinstance(prepared, TVMPreparedInput):
             raise TypeError("expected TVMPreparedInput from TVMAdapter.prepare")
-        from tvm import relax
-
-        compiled = relax.build(prepared.mod, target=prepared.target)
+        compiled = self._compile(prepared, budget)
         executable = TVMExecutable(
             vm=relax.VirtualMachine(compiled, prepared.device),
-            device=prepared.device, inputs=prepared.inputs, tvm=prepared.tvm,
+            device=prepared.device, inputs=prepared.inputs,
             input_signature=_signature(prepared.inputs),
         )
         self._run(executable, None)
         self.synchronize(executable)
         return executable
+
+    def _compile(self, prepared: TVMPreparedInput, budget: OptimizationBudget | None) -> Any:
+        return relax.build(prepared.mod, target=prepared.target)
 
     @torch.no_grad()
     def _run(self, executable: TVMExecutable, inputs: Sequence[Tensor] | None) -> Tensor:
@@ -38,7 +41,7 @@ class TVMRunner(BaseRunner[TVMPreparedInput, TVMExecutable]):
             raise ValueError("inputs must match the shapes, strides, dtype, and device used in build")
         if inputs[0].is_cuda:
             torch.cuda.synchronize(inputs[0].device)
-        tvm_inputs = tuple(executable.tvm.runtime.from_dlpack(x.detach()) for x in inputs)
+        tvm_inputs = tuple(tvm.runtime.from_dlpack(x.detach()) for x in inputs)
         output = executable.vm["main"](*tvm_inputs)
         if inputs[0].is_cuda:
             executable.device.sync()
@@ -52,7 +55,7 @@ class TVMRunner(BaseRunner[TVMPreparedInput, TVMExecutable]):
     def collect_metadata(self, prepared: TVMPreparedInput) -> dict[str, Any]:
         return {
             "backend": "tvm",
-            "backend_version": prepared.tvm.__version__,
+            "backend_version": tvm.__version__,
             "budget_enforced": False,
             "progress_reporting": False,
             "configuration": {

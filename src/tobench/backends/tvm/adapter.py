@@ -1,11 +1,21 @@
 """Prepare Relax IR and target state from PyTorch workload code."""
 
 from collections.abc import Sequence
-from importlib import import_module
 from typing import Any
 
 import torch
 from torch import Tensor
+
+try:
+    import tvm
+    from tvm import relax
+    from tvm.relax.frontend.torch import from_exported_program
+except ModuleNotFoundError as error:
+    if error.name != "tvm" and not (error.name or "").startswith("tvm."):
+        raise
+    raise ImportError(
+        'The TVM backend is optional. Install it with: pip install -e ".[tvm]"'
+    ) from error
 
 from tobench.backends.base_adapter import BaseAdapter
 from tobench.workloads import BaseWorkload
@@ -14,8 +24,6 @@ from .prepared import TVMPreparedInput
 
 def _convert_matmul(node: Any, importer: Any) -> Any:
     """Keep PyTorch's output dtype after TVM's FP32 matmul accumulation."""
-    from tvm import relax
-
     lhs, rhs = importer.retrieve_args(node)
     dtype = lhs.ty.dtype
     accumulation_dtype = "float32" if dtype in ("float16", "bfloat16") else dtype
@@ -48,20 +56,11 @@ class TVMAdapter(BaseAdapter[TVMPreparedInput]):
         if any(not x.is_contiguous() for x in inputs):
             raise ValueError("TVMAdapter requires contiguous inputs")
 
-        try:
-            tvm = import_module("tvm")
-        except ModuleNotFoundError as error:
-            if error.name != "tvm":
-                raise
-            raise ImportError(
-                'TVM is optional. Install it with: pip install -e ".[tvm]"'
-            ) from error
-
         target_name = self.target
         if target_name is None:
             if device.type == "cuda":
                 major, minor = torch.cuda.get_device_capability(device)
-                target_name = f"cuda -arch=sm_{major}{minor}"
+                target_name = {"kind": "cuda", "arch": f"sm_{major}{minor}"}
             else:
                 target_name = "llvm"
         target = tvm.target.Target(target_name)
@@ -70,8 +69,6 @@ class TVMAdapter(BaseAdapter[TVMPreparedInput]):
             raise ValueError(f"{device.type} inputs require a {expected_kind} target")
         if not tvm.runtime.enabled(expected_kind):
             raise RuntimeError(f"Installed TVM does not support {expected_kind}")
-
-        from tvm.relax.frontend.torch import from_exported_program
 
         exported = torch.export.export(workload.eval(), tuple(inputs))
         mod = from_exported_program(
@@ -84,5 +81,5 @@ class TVMAdapter(BaseAdapter[TVMPreparedInput]):
         )
         return TVMPreparedInput(
             mod=mod, inputs=tuple(inputs), target=target,
-            device=tvm.device(device.type, device.index or 0), tvm=tvm,
+            device=tvm.device(device.type, device.index or 0),
         )

@@ -26,6 +26,21 @@ class RuntimeConfig(_ConfigModel):
     repetitions: int = Field(default=100, gt=0)
 
 
+class CorrectnessConfig(_ConfigModel):
+    enabled: bool = True
+    reference: Literal["torch_eager"] = "torch_eager"
+    rtol: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    atol: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+    def resolved(self, dtype: str) -> "CorrectnessConfig":
+        """Preserve existing FP16/BF16 defaults when thresholds are omitted."""
+        default = 1e-2 if dtype == "bfloat16" else 1e-3
+        return self.model_copy(update={
+            "rtol": default if self.rtol is None else self.rtol,
+            "atol": default if self.atol is None else self.atol,
+        })
+
+
 class RMSNormLinearConfig(_ConfigModel):
     name: Literal["rmsnorm_linear"] = "rmsnorm_linear"
     M: int = Field(default=16, gt=0)
@@ -46,6 +61,7 @@ class BenchmarkConfig(_ConfigModel):
     device: Literal["cpu", "cuda"] = "cpu"
     budget: OptimizationBudget = Field(default_factory=OptimizationBudget)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    correctness: CorrectnessConfig = Field(default_factory=CorrectnessConfig)
     output: str | None = Field(default=None, min_length=1)
 
     @field_validator("workload", mode="before")

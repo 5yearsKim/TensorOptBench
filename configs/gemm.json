@@ -15,5 +15,11 @@
   "runtime": {
     "warmup": 20,
     "repetitions": 100
+  },
+  "correctness": {
+    "enabled": true,
+    "reference": "torch_eager",
+    "rtol": null,
+    "atol": null
   }
 }

@@ -23,6 +23,7 @@ def main(argv: list[str] | None = None) -> None:
     result = benchmark(
         adapter, runner, workload, inputs,
         budget=config.budget,
+        correctness=config.correctness,
         warmup=config.runtime.warmup,
         repetitions=config.runtime.repetitions,
     )

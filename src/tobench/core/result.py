@@ -14,6 +14,30 @@ PositiveFloat = Annotated[float, Field(gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 
 
+class CorrectnessResult(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", allow_inf_nan=False)
+
+    status: Literal["passed", "failed", "skipped", "error"] = "skipped"
+    reference: Literal["torch_eager"] = "torch_eager"
+    rtol: NonNegativeFloat | None = None
+    atol: NonNegativeFloat | None = None
+    shape_match: bool | None = None
+    dtype_match: bool | None = None
+    actual_shape: list[int] | None = None
+    reference_shape: list[int] | None = None
+    actual_dtype: str | None = None
+    reference_dtype: str | None = None
+    actual_nonfinite_count: NonNegativeInt | None = None
+    reference_nonfinite_count: NonNegativeInt | None = None
+    total_elements: NonNegativeInt | None = None
+    finite_elements: NonNegativeInt | None = None
+    failed_elements: NonNegativeInt | None = None
+    max_absolute_error: NonNegativeFloat | None = None
+    mean_absolute_error: NonNegativeFloat | None = None
+    message: str | None = "Correctness check was not reached"
+    error_stage: str | None = None
+
+
 class BenchmarkResult(BaseModel):
     """Validate metric types and ranges during creation and field assignment."""
 
@@ -41,6 +65,7 @@ class BenchmarkResult(BaseModel):
     peak_device_memory_bytes: NonNegativeInt | None = None
     peak_host_memory_bytes: NonNegativeInt | None = None
     error: dict[str, str] | None = None
+    correctness: CorrectnessResult = Field(default_factory=CorrectnessResult)
 
     def to_dict(self) -> dict[str, Any]:
         # In-place list/dict changes bypass Pydantic's assignment validation.

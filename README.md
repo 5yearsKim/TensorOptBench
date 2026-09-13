@@ -1,5 +1,48 @@
 # TensorOptBench
 
+Correctness validation lives in `benchmarking/correctness.py`; eager PyTorch
+reference execution lives in `benchmarking/reference.py`. The experiment checks
+outputs after build, before warmup and timed runs. Both examples print the check
+status and save a structured `correctness` report in result JSON.
+
+Configure validation in an experiment JSON:
+
+```json
+"correctness": {
+  "enabled": true,
+  "reference": "torch_eager",
+  "rtol": 0.001,
+  "atol": 0.001
+}
+```
+
+Omitted or `null` tolerances preserve dtype defaults: FP16 uses `1e-3`, BF16 uses
+`1e-2` for each threshold. Explicit thresholds must be finite and nonnegative.
+The actual resolved values are stored in the correctness report. CLI overrides
+are available in both examples:
+
+```bash
+uv run python examples/torch_compile.py --work-type gemm --rtol 0.001 --atol 0.001
+uv run --extra tvm python examples/tvm_compile.py --config configs/rmsnorm_linear.json
+```
+
+Use `--no-correctness` to skip validation explicitly; the report then says
+`skipped`, even if runtime measurement succeeds. `--correctness` enables it.
+
+The checker requires matching shapes and dtypes and rejects NaNs/infinities,
+including matching nonfinite values. Comparisons use
+`abs(actual-reference) <= atol + rtol*abs(reference)` in FP64 on CPU, outside
+the measured stages. Reports include shape/dtype agreement, nonfinite counts,
+failed/total element counts, and maximum/mean absolute error over finite pairs.
+Shape mismatches have no elementwise statistics; when no finite pairs exist,
+absolute-error statistics are `null`.
+
+Numerical mismatches produce `correctness_failed` and no runtime metrics.
+Reference execution, candidate execution, and comparison exceptions instead
+produce `error`, with the failing stage recorded separately. Eager PyTorch is
+a consistency reference, not a mathematical accuracy guarantee. These checks
+do not change the existing RMSNormLinear tolerance or repair its TVM discrepancy.
+
 Tensor compiler benchmarks with PyTorch workloads, backend-specific preparation
 and execution, and optional benchmark instrumentation.
 
@@ -188,5 +231,21 @@ The requested full-size FP16 example passes correctness checks with TorchInducto
 on CPU. With the tested TVM 0.26 CPU build, it fails the current FP16 tolerance
 on some outputs, although small FP16/BF16 cases pass. The benchmark records
 `correctness_failed` and omits runtime metrics in that case. The tolerance has
-not been relaxed; investigate the numerical differences before comparing TVM
-performance on this graph. CUDA has not been tested.
+not been relaxed. CUDA has not been tested.
+
+The CPU discrepancy was traced to the FP32 mean-square reduction. TVM's lowered
+reduction and a manually accumulated sequential FP32 sum agree exactly. At the
+default shape and seed, the mean differs from PyTorch by up to `3.22e-6`, changing
+88 normalized values after FP16 rounding. Feeding those values to PyTorch's
+projection produces 39 tolerance failures; the full TVM graph produces 40.
+TVM projection on PyTorch-normalized inputs produces no tolerance failures.
+This identifies reduction error followed by FP16 rounding as the main source.
+
+Reproduce the stage comparisons and FP64 reference checks:
+
+```bash
+uv run --extra tvm python scripts/diagnose_rmsnorm_linear.py
+```
+
+The script writes comparison statistics and Relax/lowered IR under
+`results/rmsnorm_diagnosis/`. It does not alter workload semantics or tolerances.

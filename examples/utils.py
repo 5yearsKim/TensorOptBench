@@ -54,6 +54,9 @@ def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig
     parser.add_argument("--repetitions", type=int)
     parser.add_argument("--budget-seconds", type=float)
     parser.add_argument("--output")
+    parser.add_argument("--correctness", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--rtol", type=float)
+    parser.add_argument("--atol", type=float)
     args = parser.parse_args(argv)
 
     try:
@@ -77,6 +80,11 @@ def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig
                 data["runtime"][field] = value
         if args.budget_seconds is not None:
             data["budget"]["max_time_seconds"] = args.budget_seconds
+        if args.correctness is not None:
+            data["correctness"]["enabled"] = args.correctness
+        for field in ("rtol", "atol"):
+            if getattr(args, field) is not None:
+                data["correctness"][field] = getattr(args, field)
         return BenchmarkConfig.model_validate(data)
     except (OSError, ValidationError) as error:
         parser.error(str(error))
@@ -92,6 +100,11 @@ def save_and_report(result: BenchmarkResult, config: BenchmarkConfig) -> None:
     output = Path(config.output or f"results/{config.workload.name}_{config.backend}.json")
     result.save_json(output)
     print(f"Status: {result.status}")
+    check = result.correctness
+    print(f"Correctness: {check.status} (reference={check.reference}, rtol={check.rtol}, atol={check.atol})")
+    if check.failed_elements is not None:
+        print(f"Failed elements: {check.failed_elements}/{check.total_elements}")
+        print(f"Maximum absolute error: {check.max_absolute_error}")
     print(f"Results: {output}")
     if result.status != "success":
         print(f"Error: {result.error}")

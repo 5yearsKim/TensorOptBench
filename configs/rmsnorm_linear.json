@@ -5,11 +5,22 @@
     "N": 406,
     "K": 4096,
     "dtype": "float16",
-    "eps": 0.000001,
+    "eps": 1e-06,
     "seed": 0
   },
   "backend": "inductor",
   "device": "cpu",
-  "budget": {"max_time_seconds": 60.0},
-  "runtime": {"warmup": 20, "repetitions": 100}
+  "budget": {
+    "max_time_seconds": 60.0
+  },
+  "runtime": {
+    "warmup": 20,
+    "repetitions": 100
+  },
+  "correctness": {
+    "enabled": true,
+    "reference": "torch_eager",
+    "rtol": null,
+    "atol": null
+  }
 }

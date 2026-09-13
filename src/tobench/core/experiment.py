@@ -11,7 +11,10 @@ from tobench.backends.base_adapter import BaseAdapter
 from tobench.backends.base_runner import BaseRunner
 
 from .budget import OptimizationBudget
-from .result import BenchmarkResult
+from .result import BenchmarkResult, CorrectnessResult
+from .config import CorrectnessConfig
+from tobench.benchmarking.correctness import CorrectnessChecker
+from tobench.benchmarking.reference import TorchEagerReference
 from tobench.workloads.base_workload import BaseWorkload
 
 
@@ -29,6 +32,7 @@ def benchmark(
     budget: OptimizationBudget | None = None,
     warmup: int = 20,
     repetitions: int = 100,
+    correctness: CorrectnessConfig | None = None,
 ) -> BenchmarkResult:
     """Measure one backend on caller-supplied inputs, validating against eager.
 
@@ -64,7 +68,7 @@ def benchmark(
     if any(not x.is_contiguous() for x in inputs):
         raise ValueError("benchmark inputs must be contiguous")
 
-    rtol, atol = (1e-3, 1e-3) if workload.dtype == "float16" else (1e-2, 1e-2)
+    correctness = (correctness or CorrectnessConfig()).resolved(workload.dtype)
     result = BenchmarkResult(
         backend=type(runner).__name__,
         workload=workload.to_config(),
@@ -79,7 +83,7 @@ def benchmark(
             "cache_policy": "uncontrolled",
             "process_isolation": False,
             "memory_measurement": "not_implemented",
-            "correctness": {"reference": "pytorch_eager", "rtol": rtol, "atol": atol},
+            "correctness": correctness.model_dump(mode="json"),
             "inputs": [
                 {"shape": list(x.shape), "stride": list(x.stride()), "dtype": str(x.dtype)}
                 for x in inputs
@@ -120,13 +124,28 @@ def benchmark(
         stage = "build"
         executable = runner.build(prepared, budget=budget)
 
-        stage = "correctness"
-        with torch.inference_mode():
-            reference = workload(*inputs)
-        output = runner.run(executable, measure=False)
-        runner.synchronize(executable)
-        torch.testing.assert_close(output, reference, rtol=rtol, atol=atol)
-        del output, reference
+        if correctness.enabled:
+            stage = "correctness_reference"
+            reference = TorchEagerReference().run(workload, inputs)
+            stage = "correctness_candidate"
+            output = runner.run(executable, measure=False)
+            runner.synchronize(executable)
+            stage = "correctness_comparison"
+            result.correctness = CorrectnessChecker(correctness).compare(output, reference)
+            del output, reference
+            if result.correctness.status == "failed":
+                result.status = "correctness_failed"
+                result.error = {
+                    "stage": "correctness", "type": "CorrectnessMismatch",
+                    "message": result.correctness.message,
+                }
+                return result
+        else:
+            result.correctness = CorrectnessResult(
+                status="skipped", reference=correctness.reference,
+                rtol=correctness.rtol, atol=correctness.atol,
+                message="Disabled by configuration",
+            )
 
         stage = "runtime"
         summary = runner.benchmark_run(executable, warmup=warmup, repetitions=repetitions)
@@ -140,7 +159,13 @@ def benchmark(
     except Exception as error:
         if stage == "runtime":
             stage = benchmarker.phase
-        result.status = "correctness_failed" if stage == "correctness" else "error"
+        result.status = "error"
+        if stage.startswith("correctness_"):
+            result.correctness = CorrectnessResult(
+                status="error", reference=correctness.reference,
+                rtol=correctness.rtol, atol=correctness.atol,
+                message=str(error), error_stage=stage,
+            )
         result.error = {"stage": stage, "type": type(error).__name__, "message": str(error)}
     finally:
         result.optimization_time_seconds = benchmarker.optimization_time_seconds

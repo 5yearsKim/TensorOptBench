@@ -107,8 +107,9 @@ correctness. MetaSchedule search and hard budget cancellation are not implemente
 The examples own workload/input creation and backend selection. Shared helpers
 in `examples/utils.py` provide `create_workload(work_type)`, argument parsing,
 and result reporting. The workload factory contains a hardcoded GEMM example
-(`M=N=K=128`, FP16, seed 0); JSON and CLI parameters can override these values.
-Only `gemm` is currently supported. Add new workload mappings in that helper
+(`M=N=K=128`, FP16, seed 0) and the RMSNormLinear example described below;
+JSON and CLI parameters can override these values.
+`gemm` and `rmsnorm_linear` are supported. Add new workload mappings in that helper
 and extend the configuration/CLI choices when adding operators.
 
 Both scripts accept `--work-type gemm` (alias `--work_type gemm`). Their backend
@@ -155,3 +156,37 @@ Run tests (including TVM when installed with LLVM support):
 ```bash
 uv run --extra tvm python -m unittest discover -s tests -v
 ```
+
+`RMSNormLinear` in `workloads/rmsnorm_linear.py` implements normalization followed
+by a bias-free linear projection:
+
+```python
+normalized = X.float() * torch.rsqrt(X.float().square().mean(-1, keepdim=True) + eps)
+normalized = (normalized * G.float()).to(X.dtype)
+output = normalized @ W.T
+```
+
+Defaults match the requested graph: `X[16,4096]`, `G[1,4096]`, `W[406,4096]`,
+FP16, and output `[16,406]`. Because W stores `[out_features,in_features]`, the
+projection uses its transpose. Epsilon defaults to `1e-6` and can be set with
+`--eps` or in JSON. Normalization and scale multiplication use FP32 with one
+cast before projection. This defines the numerical contract explicitly; no
+external graph library's unspecified epsilon or rounding rules are assumed.
+
+```bash
+uv run python examples/torch_compile.py --work-type rmsnorm_linear
+uv run --extra tvm python examples/tvm_compile.py --config configs/rmsnorm_linear.json
+```
+
+Dimensions remain configurable through `--m`, `--n`, and `--k`. Changing
+`--work-type` selects that operator's defaults before applying CLI overrides.
+For this workload, reported TFLOP/s uses the approximate arithmetic count
+`2*M*N*K + 4*M*K + 2*M`, counting reciprocal square root as one operation and
+excluding casts and memory operations. It is not a hardware instruction count.
+
+The requested full-size FP16 example passes correctness checks with TorchInductor
+on CPU. With the tested TVM 0.26 CPU build, it fails the current FP16 tolerance
+on some outputs, although small FP16/BF16 cases pass. The benchmark records
+`correctness_failed` and omits runtime metrics in that case. The tolerance has
+not been relaxed; investigate the numerical differences before comparing TVM
+performance on this graph. CUDA has not been tested.

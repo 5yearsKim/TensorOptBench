@@ -1,0 +1,15 @@
+{
+  "workload": {
+    "name": "rmsnorm_linear",
+    "M": 16,
+    "N": 406,
+    "K": 4096,
+    "dtype": "float16",
+    "eps": 0.000001,
+    "seed": 0
+  },
+  "backend": "inductor",
+  "device": "cpu",
+  "budget": {"max_time_seconds": 60.0},
+  "runtime": {"warmup": 20, "repetitions": 100}
+}

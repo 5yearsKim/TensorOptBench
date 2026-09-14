@@ -52,6 +52,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.workload.M, 8)
         self.assertEqual(config.runtime.repetitions, 2)
         self.assertEqual(config.budget.max_time_seconds, 1)
+        self.assertEqual(parse_config("tensorrt", []).backend, "tensorrt")
 
     def test_workload_factory_preserves_rng_and_uses_parameters(self):
         before = torch.random.get_rng_state().clone()

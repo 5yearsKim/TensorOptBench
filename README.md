@@ -46,9 +46,8 @@ do not change the existing RMSNormLinear tolerance or repair its TVM discrepancy
 Tensor compiler benchmarks with PyTorch workloads, backend-specific preparation
 and execution, and optional benchmark instrumentation.
 
-Optional backend packages use ordinary imports. Importing `tobench` or the Torch
-backend does not require TVM; importing `tobench.backends.tvm` does. A missing
-TVM installation reports the optional-extra install command.
+Importing `tobench` or the Torch backend does not require TVM or Torch-TensorRT.
+Optional backends report dependency guidance when a package is needed.
 
 Use `scripts/run_benchmark.py` as the measurement entry point. It starts a fresh
 Python process for every experiment, imports the selected backend before any
@@ -66,6 +65,7 @@ Run an experiment from [configs/gemm.json](configs/gemm.json):
 
 ```bash
 uv run python scripts/run_benchmark.py --backend inductor --work-type gemm
+.venv/bin/python scripts/run_benchmark.py --backend tensorrt --device cuda --work-type gemm
 uv run python scripts/run_benchmark.py --backend inductor --config configs/gemm.json
 uv run --extra tvm python scripts/run_benchmark.py --backend tvm --work-type gemm
 ```
@@ -93,6 +93,10 @@ src/tobench/
 │   │   ├── prepared.py
 │   │   ├── eager_runner.py
 │   │   └── inductor_runner.py
+│   ├── tensorrt/
+│   │   ├── adapter.py
+│   │   ├── prepared.py
+│   │   └── runner.py
 │   └── tvm/
 │       ├── adapter.py
 │       ├── metaschedule_runner.py
@@ -152,6 +156,27 @@ Inductor finishes its first invocation in `build`, under the same inference
 context as execution. It does not record that invocation as a runtime sample.
 Subsequent inputs must preserve shapes, strides, dtype, device, and execution
 settings to avoid recompilation. `TorchEagerRunner` executes without compilation.
+
+Torch-TensorRT is an optional CUDA-only graph backend. `TensorRTAdapter` exports
+the complete workload with `torch.export`; `TensorRTRunner` compiles it through
+the Dynamo frontend with `require_full_compilation=True`,
+`pass_through_build_failures=True`, and `min_block_size=1`. Unsupported graphs
+and engine builds therefore fail, and single-operation workloads remain eligible
+for compilation. Build includes TensorRT tactic selection and a first invocation.
+Runtime inputs must retain the build shapes, strides, dtypes, and device.
+
+```bash
+uv sync
+uv pip install --python .venv/bin/python torch-tensorrt tensorrt
+.venv/bin/python scripts/run_benchmark.py --backend tensorrt --device cuda --work-type gemm
+```
+
+Use matching PyTorch, Torch-TensorRT, TensorRT, CUDA, driver, and GPU versions.
+Torch-TensorRT is deliberately installed outside the shared CPU-generated lock;
+pin compatible versions when creating the target GPU environment.
+The isolated launcher assigns a fresh TensorRT timing cache and disables engine
+caching. Direct example runs use an uncontrolled timing-cache policy. TensorRT
+cannot run in the CPU-only development environment.
 
 TVM is optional and uses the tested 0.26 API series. `TVMAdapter.prepare` exports
 the PyTorch module and imports it into Relax IR, returning `TVMPreparedInput`.

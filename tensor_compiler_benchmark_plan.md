@@ -29,11 +29,11 @@ Defer distributed execution, dynamic shapes, other accelerator vendors, training
 | Backend | Role |
 | --- | --- |
 | PyTorch eager / cuBLAS / cuDNN | Baseline runtime performance |
-| Triton | Explicit kernels with compilation and autotuning |
+| Torch-TensorRT | PyTorch graph compilation and TensorRT tactic selection |
 | TVM MetaSchedule | Search-based scheduling and compilation |
 | TorchInductor | Graph compilation and fusion |
 
-Start with PyTorch and Triton, then add TVM MetaSchedule and TorchInductor. Possible later integrations include TileLang, XLA, IREE, TensorRT, CUTLASS-based implementations, and custom optimizers.
+Start with PyTorch and Torch-TensorRT, then add TVM MetaSchedule and TorchInductor. Possible later integrations include TileLang, XLA, IREE, CUTLASS-based implementations, and custom optimizers.
 
 The common API must support backends with or without autotuning.
 
@@ -118,7 +118,7 @@ class BackendAdapter(ABC):
         ...
 ```
 
-Concrete implementations are `TVMAdapter(BackendAdapter)`, `TritonAdapter(BackendAdapter)`, `TorchInductorAdapter(BackendAdapter)`, and `BaselineAdapter(BackendAdapter)`. Each implements these methods; the runner uses only the base interface.
+Concrete implementations are `TVMAdapter(BackendAdapter)`, `TensorRTAdapter(BackendAdapter)`, `TorchInductorAdapter(BackendAdapter)`, and `BaselineAdapter(BackendAdapter)`. Each implements these methods; the runner uses only the base interface.
 
 `prepare` performs workload setup without tuning or compilation. `build` encapsulates each backend's internal search and compilation order, including any first invocation needed to finish lazy compilation or autotuning. A baseline's `build` can simply return a callable. `run` must not trigger further tuning or compilation during runtime measurement.
 
@@ -194,7 +194,7 @@ workload:
   dtype: float16
 
 backends:
-  - triton
+  - tensorrt
   - tvm
   - torchinductor
 
@@ -235,7 +235,7 @@ tensor-compiler-bench/
 ├── backends/
 │   ├── base.py
 │   ├── tvm/
-│   ├── triton/
+│   ├── tensorrt/
 │   ├── torchinductor/
 │   └── baseline/
 ├── core/
@@ -265,7 +265,7 @@ Keep backend-specific dependencies isolated from the benchmark core.
 | Phase | Deliverable |
 | --- | --- |
 | 0 — Skeleton | Workload definition, shared adapter base class, runner, budget, result schema, and CLI; use mock adapters initially. |
-| 1 — Baseline + Triton | Implement both adapters; support GEMM, GEMM + RMSNorm, and an elementwise operation; collect optimization time, latency, throughput, and memory usage. |
+| 1 — Baseline + TensorRT | Implement both adapters; support GEMM, GEMM + RMSNorm, and an elementwise operation; collect optimization time, latency, throughput, and memory usage. |
 | 2 — TVM MetaSchedule | Add the TVM adapter, wall-clock budget handling, and optional optimization trajectories. |
 | 3 — TorchInductor | Add the TorchInductor adapter and exercise operators and fused subgraphs through the same API. |
 | 4 — Analysis | Produce latency comparisons, best latency versus optimization time, and memory versus final latency plots. |
@@ -274,11 +274,11 @@ Keep backend-specific dependencies isolated from the benchmark core.
 ## 11. Minimum Viable Version
 
 - **Workloads:** GEMM, GEMM + RMSNorm, Softmax, RMSNorm, and GEMM + GELU.
-- **Backends:** PyTorch baseline, Triton, and TVM MetaSchedule.
+- **Backends:** PyTorch baseline, Torch-TensorRT, and TVM MetaSchedule.
 - **Metrics:** total optimization time, runtime latency, throughput, peak host memory, and peak device memory.
 - **Outputs:** JSON results, CSV summaries, latency comparisons, and optimization trajectory plots where available.
 
-The first concrete target is GEMM with PyTorch and Triton, a fixed wall-clock optimization budget, and JSON output. Extend that pipeline with GEMM + RMSNorm and the remaining workloads, then TVM MetaSchedule.
+The first concrete target is GEMM with PyTorch and Torch-TensorRT, a fixed wall-clock optimization budget, and JSON output. Extend that pipeline with GEMM + RMSNorm and the remaining workloads, then TVM MetaSchedule.
 
 ## 12. Design Principles
 

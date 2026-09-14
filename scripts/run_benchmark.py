@@ -13,6 +13,7 @@ import tempfile
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKERS = {
     "inductor": PROJECT_ROOT / "examples" / "torch_compile.py",
+    "tensorrt": PROJECT_ROOT / "examples" / "tensorrt_compile.py",
     "tvm": PROJECT_ROOT / "examples" / "tvm_compile.py",
     "tvm_metaschedule": PROJECT_ROOT / "examples" / "tvm_metaschedule.py",
 }
@@ -39,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
         cache_directory = Path(temporary_directory)
         inductor_cache = cache_directory / "torchinductor"
         triton_cache = cache_directory / "triton"
+        tensorrt_timing_cache = cache_directory / "tensorrt-timing.cache"
         inductor_cache.mkdir()
         triton_cache.mkdir()
 
@@ -47,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "TORCHINDUCTOR_CACHE_DIR": str(inductor_cache),
                 "TRITON_CACHE_DIR": str(triton_cache),
+                "TOBENCH_TENSORRT_TIMING_CACHE_PATH": str(tensorrt_timing_cache),
                 "TOBENCH_PROCESS_ISOLATED": "1",
                 "TOBENCH_CACHE_POLICY": "fresh_temporary",
             }

@@ -17,6 +17,10 @@ class SubprocessLauncherTests(unittest.TestCase):
             observed.update(command=command, cwd=cwd, env=env, check=check)
             self.assertTrue(Path(env["TORCHINDUCTOR_CACHE_DIR"]).is_dir())
             self.assertTrue(Path(env["TRITON_CACHE_DIR"]).is_dir())
+            self.assertEqual(
+                Path(env["TOBENCH_TENSORRT_TIMING_CACHE_PATH"]).parent,
+                Path(env["TRITON_CACHE_DIR"]).parent,
+            )
             return subprocess.CompletedProcess(command, 7)
 
         with tempfile.TemporaryDirectory() as directory, patch(
@@ -35,6 +39,16 @@ class SubprocessLauncherTests(unittest.TestCase):
         self.assertEqual(observed["env"]["TOBENCH_PROCESS_ISOLATED"], "1")
         self.assertEqual(observed["env"]["TOBENCH_CACHE_POLICY"], "fresh_temporary")
         self.assertFalse(observed["check"])
+
+    def test_selects_tensorrt_worker(self):
+        with patch(
+            "scripts.run_benchmark.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0),
+        ) as run:
+            self.assertEqual(main(["--backend", "tensorrt", "--device", "cuda"]), 0)
+        command = run.call_args.args[0]
+        self.assertTrue(command[1].endswith("examples/tensorrt_compile.py"))
+        self.assertEqual(command[2:], ["--device", "cuda"])
 
 
 if __name__ == "__main__":

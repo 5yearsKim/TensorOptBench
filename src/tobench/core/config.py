@@ -67,7 +67,7 @@ class BenchmarkConfig(_ConfigModel):
     workload: GEMMConfig | RMSNormLinearConfig = Field(
         default_factory=GEMMConfig, discriminator="name"
     )
-    backend: Literal["eager", "inductor", "tvm", "tvm_metaschedule"] = "eager"
+    backend: Literal["eager", "inductor", "tensorrt", "tvm", "tvm_metaschedule"] = "eager"
     metaschedule: MetaScheduleConfig = Field(default_factory=MetaScheduleConfig)
     device: Literal["cpu", "cuda"] = "cpu"
     budget: OptimizationBudget = Field(default_factory=OptimizationBudget)

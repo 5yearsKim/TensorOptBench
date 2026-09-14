@@ -1,6 +1,7 @@
 """Compile exported PyTorch graphs into TensorRT engines and execute them."""
 
 import os
+import sys
 from collections.abc import Sequence
 from types import ModuleType
 from typing import Any
@@ -89,7 +90,15 @@ class TensorRTRunner(BaseRunner[TensorRTPreparedInput, TensorRTExecutable]):
         if timing_cache_path is not None:
             options["timing_cache_path"] = timing_cache_path
 
-        module = trt.dynamo.compile(prepared.exported_program, **options)
+        # Torch-TensorRT's internal parser examines process argv. Hide the
+        # benchmark CLI while compiling so options such as ``--m`` are not
+        # mistaken for Torch-TensorRT's ``--min-*`` flags.
+        benchmark_argv = sys.argv
+        sys.argv = [benchmark_argv[0]]
+        try:
+            module = trt.dynamo.compile(prepared.exported_program, **options)
+        finally:
+            sys.argv = benchmark_argv
         executable = TensorRTExecutable(
             module=module,
             inputs=prepared.inputs,

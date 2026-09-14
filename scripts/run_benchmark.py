@@ -59,6 +59,14 @@ def main(argv: list[str] | None = None) -> int:
                 "TOBENCH_CACHE_POLICY": "fresh_temporary",
             }
         )
+        if args.backend == "iree":
+            # Delta's single-rank PMI environment makes IREE attempt MPI
+            # channel setup, and its default CUDA async allocator cannot
+            # export buffers through the DLPack boundary used by this backend.
+            for name in tuple(environment):
+                if name.startswith("PMI_"):
+                    environment.pop(name, None)
+            environment["IREE_PY_RUNTIME_FLAGS"] = "--cuda_async_allocations=false"
         command = [sys.executable, str(WORKERS[args.backend]), *worker_args]
         completed = subprocess.run(
             command, cwd=PROJECT_ROOT, env=environment, check=False

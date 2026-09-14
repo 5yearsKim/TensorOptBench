@@ -58,6 +58,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.budget.max_time_seconds, 1)
         self.assertEqual(parse_config("tensorrt", []).backend, "tensorrt")
         self.assertEqual(parse_config("iree", []).backend, "iree")
+        self.assertEqual(parse_config("xla", ["--device", "tpu"]).device, "tpu")
         self.assertEqual(
             parse_config("iree", ["--iree-opt-level", "O2"]).iree.optimization_level,
             "O2",

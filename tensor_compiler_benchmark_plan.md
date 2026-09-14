@@ -31,10 +31,11 @@ Defer distributed execution, dynamic shapes, other accelerator vendors, training
 | PyTorch eager / cuBLAS / cuDNN | Baseline runtime performance |
 | Torch-TensorRT | PyTorch graph compilation and TensorRT tactic selection |
 | IREE | PyTorch graph compilation to portable VM executables |
+| PyTorch/XLA | OpenXLA graph compilation through the PJRT CPU/TPU runtime |
 | TVM MetaSchedule | Search-based scheduling and compilation |
 | TorchInductor | Graph compilation and fusion |
 
-Start with PyTorch and Torch-TensorRT, then add IREE, TVM MetaSchedule, and TorchInductor. Possible later integrations include TileLang, XLA, CUTLASS-based implementations, and custom optimizers.
+Start with PyTorch and Torch-TensorRT, then add IREE, PyTorch/XLA, TVM MetaSchedule, and TorchInductor. Possible later integrations include TileLang, CUTLASS-based implementations, and custom optimizers.
 
 The common API must support backends with or without autotuning.
 
@@ -198,6 +199,7 @@ workload:
 backends:
   - tensorrt
   - iree
+  - xla
   - tvm
   - torchinductor
 
@@ -271,15 +273,16 @@ Keep backend-specific dependencies isolated from the benchmark core.
 | 0 — Skeleton | Workload definition, shared adapter base class, runner, budget, result schema, and CLI; use mock adapters initially. |
 | 1 — Baseline + TensorRT | Implement both adapters; support GEMM, GEMM + RMSNorm, and an elementwise operation; collect optimization time, latency, throughput, and memory usage. |
 | 2 — IREE | Add Turbine AOT import and LLVM CPU/CUDA compilation through the IREE runtime. |
-| 3 — TVM MetaSchedule | Add the TVM adapter, wall-clock budget handling, and optional optimization trajectories. |
-| 4 — TorchInductor | Add the TorchInductor adapter and exercise operators and fused subgraphs through the same API. |
-| 5 — Analysis | Produce latency comparisons, best latency versus optimization time, and memory versus final latency plots. |
-| 6 — Extensions | Add backends and workloads once the common interface and measurement procedure are stable. |
+| 3 — PyTorch/XLA | Add OpenXLA compilation and PJRT CPU/TPU execution. |
+| 4 — TVM MetaSchedule | Add the TVM adapter, wall-clock budget handling, and optional optimization trajectories. |
+| 5 — TorchInductor | Add the TorchInductor adapter and exercise operators and fused subgraphs through the same API. |
+| 6 — Analysis | Produce latency comparisons, best latency versus optimization time, and memory versus final latency plots. |
+| 7 — Extensions | Add backends and workloads once the common interface and measurement procedure are stable. |
 
 ## 11. Minimum Viable Version
 
 - **Workloads:** Batched GEMM, RMSNormLinear, Softmax, Attention, and ConvBNReLU.
-- **Backends:** PyTorch baseline, Torch-TensorRT, IREE, and TVM MetaSchedule.
+- **Backends:** PyTorch baseline, Torch-TensorRT, IREE, PyTorch/XLA, and TVM MetaSchedule.
 - **Metrics:** total optimization time, runtime latency, throughput, peak host memory, and peak device memory.
 - **Outputs:** JSON results, CSV summaries, latency comparisons, and optimization trajectory plots where available.
 

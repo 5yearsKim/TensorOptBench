@@ -17,6 +17,7 @@ WORKERS = {
     "tensorrt": PROJECT_ROOT / "examples" / "tensorrt_compile.py",
     "tvm": PROJECT_ROOT / "examples" / "tvm_compile.py",
     "tvm_metaschedule": PROJECT_ROOT / "examples" / "tvm_metaschedule.py",
+    "xla": PROJECT_ROOT / "examples" / "xla_compile.py",
 }
 
 
@@ -42,8 +43,10 @@ def main(argv: list[str] | None = None) -> int:
         inductor_cache = cache_directory / "torchinductor"
         triton_cache = cache_directory / "triton"
         tensorrt_timing_cache = cache_directory / "tensorrt-timing.cache"
+        xla_cache = cache_directory / "xla"
         inductor_cache.mkdir()
         triton_cache.mkdir()
+        xla_cache.mkdir()
 
         environment = os.environ.copy()
         environment.update(
@@ -51,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
                 "TORCHINDUCTOR_CACHE_DIR": str(inductor_cache),
                 "TRITON_CACHE_DIR": str(triton_cache),
                 "TOBENCH_TENSORRT_TIMING_CACHE_PATH": str(tensorrt_timing_cache),
+                "TOBENCH_XLA_CACHE_PATH": str(xla_cache),
                 "TOBENCH_PROCESS_ISOLATED": "1",
                 "TOBENCH_CACHE_POLICY": "fresh_temporary",
             }

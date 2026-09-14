@@ -20,7 +20,7 @@ def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig
         "--work-type", "--work_type",
         choices=("gemm", "rmsnorm_linear", "softmax", "attention", "conv_bn_relu"),
     )
-    parser.add_argument("--device", choices=("cpu", "cuda"))
+    parser.add_argument("--device", choices=("cpu", "cuda", "tpu"))
     parser.add_argument("--dtype", choices=("float16", "bfloat16"))
     parser.add_argument("--m", type=int)
     parser.add_argument("--n", type=int)

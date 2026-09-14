@@ -124,11 +124,11 @@ class BenchmarkConfig(_ConfigModel):
         default_factory=GEMMConfig, discriminator="name"
     )
     backend: Literal[
-        "eager", "inductor", "iree", "tensorrt", "tvm", "tvm_metaschedule"
+        "eager", "inductor", "iree", "tensorrt", "tvm", "tvm_metaschedule", "xla"
     ] = "eager"
     iree: IREEConfig = Field(default_factory=IREEConfig)
     metaschedule: MetaScheduleConfig = Field(default_factory=MetaScheduleConfig)
-    device: Literal["cpu", "cuda"] = "cpu"
+    device: Literal["cpu", "cuda", "tpu"] = "cpu"
     budget: OptimizationBudget = Field(default_factory=OptimizationBudget)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     correctness: CorrectnessConfig = Field(default_factory=CorrectnessConfig)

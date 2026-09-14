@@ -45,8 +45,8 @@ a consistency reference, not a mathematical accuracy guarantee.
 Tensor compiler benchmarks with PyTorch workloads, backend-specific preparation
 and execution, and optional benchmark instrumentation.
 
-Importing `tobench` or the Torch backend does not require IREE, TVM, or
-Torch-TensorRT.
+Importing `tobench` or the Torch backend does not require IREE, PyTorch/XLA,
+TVM, or Torch-TensorRT.
 Optional backends report dependency guidance when a package is needed.
 
 Use `scripts/run_benchmark.py` as the measurement entry point. It starts a fresh
@@ -79,7 +79,7 @@ the fully resolved configuration.
 
 GEMM defaults are CPU, FP16, `B=8`, `M=N=K=128`, 20 warmup iterations, and 100
 measured runs. Dimension flags include `--batch-size`, `--m`, `--n`, `--k`,
-`--heads`, `--seq-len`, and `--head-dim`; common flags include `--device cuda`,
+`--heads`, `--seq-len`, and `--head-dim`; common flags include `--device cuda|tpu`,
 `--dtype bfloat16`, `--seed`, `--warmup`, `--repetitions`, `--budget-seconds`, and
 `--output`. ConvBNReLU also accepts `--in-channels`, `--out-channels`, `--height`,
 `--width`, `--kernel-size`, `--stride`, `--padding`, `--dilation`, and `--groups`.
@@ -94,6 +94,10 @@ src/tobench/
 │   ├── base_adapter.py
 │   ├── base_runner.py
 │   ├── iree/
+│   │   ├── adapter.py
+│   │   ├── prepared.py
+│   │   └── runner.py
+│   ├── xla/
 │   │   ├── adapter.py
 │   │   ├── prepared.py
 │   │   └── runner.py
@@ -189,6 +193,30 @@ RMSNormLinear, Softmax, and Attention graphs are tested through the real LLVM
 CPU compiler. CUDA VM bytecode generation is tested offline; CUDA runtime
 execution and cross-runtime synchronization still require validation on the
 target GPU.
+
+PyTorch/XLA is optional and uses the PJRT runtime. `XLAAdapter.prepare` selects
+CPU or TPU, copies the workload and inputs onto the XLA device, and materializes
+those transfers outside the build timer. `XLARunner.build` compiles the complete
+static graph with `torch.compile(backend="openxla", fullgraph=True)` and performs
+the first synchronized invocation. Timed runs reuse device-resident inputs and
+call `torch_xla.sync(wait=True)` at every measurement boundary.
+
+The published PyTorch/XLA 2.9 package must use its matching PyTorch 2.9 release,
+while the main project environment currently uses a newer PyTorch version. Keep
+XLA in a separate environment rather than changing the shared lock:
+
+```bash
+python3.12 -m venv .venv-xla
+.venv-xla/bin/pip install pydantic torch==2.9.0 torch-xla==2.9.0
+.venv-xla/bin/pip install -e . --no-deps
+.venv-xla/bin/python scripts/run_benchmark.py --backend xla --device cpu --work-type gemm
+```
+
+Use `--device tpu` in a TPU environment. The isolated launcher creates a fresh
+XLA persistent compilation cache for each experiment. Direct example runs leave
+the persistent cache disabled. CPU and TPU are the supported PJRT targets in
+this integration; CUDA execution should use the IREE, TensorRT, TVM, or Inductor
+backend.
 
 Torch-TensorRT is an optional CUDA-only graph backend. `TensorRTAdapter` exports
 the complete workload with `torch.export`; `TensorRTRunner` compiles it through

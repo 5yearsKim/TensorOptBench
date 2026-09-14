@@ -60,6 +60,18 @@ class SubprocessLauncherTests(unittest.TestCase):
         self.assertTrue(command[1].endswith("examples/iree_compile.py"))
         self.assertEqual(command[2:], ["--device", "cpu"])
 
+    def test_selects_xla_worker(self):
+        with patch(
+            "scripts.run_benchmark.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0),
+        ) as run:
+            self.assertEqual(main(["--backend", "xla", "--device", "tpu"]), 0)
+        command = run.call_args.args[0]
+        environment = run.call_args.kwargs["env"]
+        self.assertTrue(command[1].endswith("examples/xla_compile.py"))
+        self.assertEqual(command[2:], ["--device", "tpu"])
+        self.assertTrue(Path(environment["TOBENCH_XLA_CACHE_PATH"]).name == "xla")
+
 
 if __name__ == "__main__":
     unittest.main()

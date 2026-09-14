@@ -50,6 +50,16 @@ class SubprocessLauncherTests(unittest.TestCase):
         self.assertTrue(command[1].endswith("examples/tensorrt_compile.py"))
         self.assertEqual(command[2:], ["--device", "cuda"])
 
+    def test_selects_iree_worker(self):
+        with patch(
+            "scripts.run_benchmark.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0),
+        ) as run:
+            self.assertEqual(main(["--backend", "iree", "--device", "cpu"]), 0)
+        command = run.call_args.args[0]
+        self.assertTrue(command[1].endswith("examples/iree_compile.py"))
+        self.assertEqual(command[2:], ["--device", "cpu"])
+
 
 if __name__ == "__main__":
     unittest.main()

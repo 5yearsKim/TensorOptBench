@@ -61,13 +61,20 @@ class MetaScheduleConfig(_ConfigModel):
     target: str | None = Field(default=None, min_length=1)
 
 
+class IREEConfig(_ConfigModel):
+    optimization_level: Literal["O0", "O1", "O2", "O3"] = "O3"
+
+
 class BenchmarkConfig(_ConfigModel):
     """One backend/workload experiment; paths are relative to the working directory."""
 
     workload: GEMMConfig | RMSNormLinearConfig = Field(
         default_factory=GEMMConfig, discriminator="name"
     )
-    backend: Literal["eager", "inductor", "tensorrt", "tvm", "tvm_metaschedule"] = "eager"
+    backend: Literal[
+        "eager", "inductor", "iree", "tensorrt", "tvm", "tvm_metaschedule"
+    ] = "eager"
+    iree: IREEConfig = Field(default_factory=IREEConfig)
     metaschedule: MetaScheduleConfig = Field(default_factory=MetaScheduleConfig)
     device: Literal["cpu", "cuda"] = "cpu"
     budget: OptimizationBudget = Field(default_factory=OptimizationBudget)

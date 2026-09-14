@@ -40,6 +40,7 @@ class ConfigTests(unittest.TestCase):
             {"workload": {"M": "128"}}, {"workload": {"M": True}},
             {"runtime": {"warmup": -1}}, {"runtime": {"repetitions": 0}},
             {"runtime": {"repetitons": 10}}, {"budget": {"max_time_seconds": -1}},
+            {"iree": {"optimization_level": "O4"}},
         ):
             with self.subTest(data=data), self.assertRaises(ValidationError):
                 BenchmarkConfig.model_validate_json(json.dumps(data))
@@ -53,6 +54,11 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.runtime.repetitions, 2)
         self.assertEqual(config.budget.max_time_seconds, 1)
         self.assertEqual(parse_config("tensorrt", []).backend, "tensorrt")
+        self.assertEqual(parse_config("iree", []).backend, "iree")
+        self.assertEqual(
+            parse_config("iree", ["--iree-opt-level", "O2"]).iree.optimization_level,
+            "O2",
+        )
 
     def test_workload_factory_preserves_rng_and_uses_parameters(self):
         before = torch.random.get_rng_state().clone()

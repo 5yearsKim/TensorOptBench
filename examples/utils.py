@@ -29,6 +29,8 @@ def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig
     parser.add_argument("--correctness", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--rtol", type=float)
     parser.add_argument("--atol", type=float)
+    if backend == "iree":
+        parser.add_argument("--iree-opt-level", choices=("O0", "O1", "O2", "O3"))
     if backend == "tvm_metaschedule":
         parser.add_argument("--max-trials-global", type=int)
         parser.add_argument("--max-trials-per-task", type=int)
@@ -65,6 +67,8 @@ def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig
         for field in ("rtol", "atol"):
             if getattr(args, field) is not None:
                 data["correctness"][field] = getattr(args, field)
+        if backend == "iree" and args.iree_opt_level is not None:
+            data["iree"]["optimization_level"] = args.iree_opt_level
         if backend == "tvm_metaschedule":
             for flag, field in (
                 ("max_trials_global", "max_trials_global"),

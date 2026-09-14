@@ -46,7 +46,8 @@ do not change the existing RMSNormLinear tolerance or repair its TVM discrepancy
 Tensor compiler benchmarks with PyTorch workloads, backend-specific preparation
 and execution, and optional benchmark instrumentation.
 
-Importing `tobench` or the Torch backend does not require TVM or Torch-TensorRT.
+Importing `tobench` or the Torch backend does not require IREE, TVM, or
+Torch-TensorRT.
 Optional backends report dependency guidance when a package is needed.
 
 Use `scripts/run_benchmark.py` as the measurement entry point. It starts a fresh
@@ -65,6 +66,7 @@ Run an experiment from [configs/gemm.json](configs/gemm.json):
 
 ```bash
 uv run python scripts/run_benchmark.py --backend inductor --work-type gemm
+uv run --extra iree python scripts/run_benchmark.py --backend iree --device cpu --work-type gemm
 .venv/bin/python scripts/run_benchmark.py --backend tensorrt --device cuda --work-type gemm
 uv run python scripts/run_benchmark.py --backend inductor --config configs/gemm.json
 uv run --extra tvm python scripts/run_benchmark.py --backend tvm --work-type gemm
@@ -88,6 +90,10 @@ src/tobench/
 ├── backends/
 │   ├── base_adapter.py
 │   ├── base_runner.py
+│   ├── iree/
+│   │   ├── adapter.py
+│   │   ├── prepared.py
+│   │   └── runner.py
 │   ├── torch/
 │   │   ├── adapter.py
 │   │   ├── prepared.py
@@ -157,6 +163,26 @@ context as execution. It does not record that invocation as a runtime sample.
 Subsequent inputs must preserve shapes, strides, dtype, device, and execution
 settings to avoid recompilation. `TorchEagerRunner` executes without compilation.
 
+IREE is optional and uses Turbine's ahead-of-time PyTorch frontend. `IREEAdapter`
+exports the complete static workload to MLIR. `IREERunner` compiles an in-memory
+VM bytecode module, loads it through the IREE runtime, and completes a first
+invocation during build. CPU inputs select the `llvm-cpu` target with the
+`local-task` runtime. CUDA inputs select the `cuda` compiler and runtime and use
+the input GPU's `sm_XX` architecture. Inputs and outputs cross the PyTorch/IREE
+boundary through DLPack without host tensor copies.
+
+```bash
+uv run --extra iree python scripts/run_benchmark.py --backend iree --device cpu --work-type gemm
+uv run --extra iree python scripts/run_benchmark.py --backend iree --device cuda --work-type gemm
+```
+
+IREE defaults to optimization level `O3`; select another level with
+`--iree-opt-level O0`, `O1`, `O2`, or `O3`. Runtime inputs must retain the build
+shapes, strides, dtypes, and device. FP16 and BF16 GEMM and a small FP16
+RMSNormLinear graph are tested through the real LLVM CPU compiler. CUDA VM
+bytecode generation is tested offline; CUDA runtime execution and cross-runtime
+synchronization still require validation on the target GPU.
+
 Torch-TensorRT is an optional CUDA-only graph backend. `TensorRTAdapter` exports
 the complete workload with `torch.export`; `TensorRTRunner` compiles it through
 the Dynamo frontend with `require_full_compilation=True`,
@@ -200,12 +226,11 @@ JSON and CLI parameters can override these values.
 `gemm` and `rmsnorm_linear` are supported. Add new workload mappings in that helper
 and extend the configuration/CLI choices when adding operators.
 
-Both scripts accept `--work-type gemm` (alias `--work_type gemm`). Their backend
-is fixed by the script, overriding the JSON `backend` field. Both validate
-correctness, record preparation/build/runtime measurements, and save JSON to
-`results/gemm_inductor.json` or `results/gemm_tvm.json` by default. Use `--output`
-to select another path. They also work with `python -m examples.torch_compile`
-and `python -m examples.tvm_compile`.
+The backend example scripts accept `--work-type gemm` (alias `--work_type gemm`).
+Each fixes its backend, overriding the JSON `backend` field. They validate
+correctness, record preparation/build/runtime measurements, and save JSON under
+`results/` by default. Use `--output` to select another path. They also work as
+modules, including `python -m examples.iree_compile`.
 
 The reusable experiment API is `benchmark(adapter, runner, workload, inputs, ...)`
 from `core.experiment`. Supply a runner with an injected benchmarker. There is no
@@ -243,7 +268,7 @@ workload has its own file and inherits `BaseWorkload`.
 Run tests (including TVM when installed with LLVM support):
 
 ```bash
-uv run --extra tvm python -m unittest discover -s tests -v
+uv run --extra iree --extra tvm python -m unittest discover -s tests -v
 ```
 
 `RMSNormLinear` in `workloads/rmsnorm_linear.py` implements normalization followed

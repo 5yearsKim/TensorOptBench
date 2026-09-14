@@ -30,10 +30,11 @@ Defer distributed execution, dynamic shapes, other accelerator vendors, training
 | --- | --- |
 | PyTorch eager / cuBLAS / cuDNN | Baseline runtime performance |
 | Torch-TensorRT | PyTorch graph compilation and TensorRT tactic selection |
+| IREE | PyTorch graph compilation to portable VM executables |
 | TVM MetaSchedule | Search-based scheduling and compilation |
 | TorchInductor | Graph compilation and fusion |
 
-Start with PyTorch and Torch-TensorRT, then add TVM MetaSchedule and TorchInductor. Possible later integrations include TileLang, XLA, IREE, CUTLASS-based implementations, and custom optimizers.
+Start with PyTorch and Torch-TensorRT, then add IREE, TVM MetaSchedule, and TorchInductor. Possible later integrations include TileLang, XLA, CUTLASS-based implementations, and custom optimizers.
 
 The common API must support backends with or without autotuning.
 
@@ -118,7 +119,7 @@ class BackendAdapter(ABC):
         ...
 ```
 
-Concrete implementations are `TVMAdapter(BackendAdapter)`, `TensorRTAdapter(BackendAdapter)`, `TorchInductorAdapter(BackendAdapter)`, and `BaselineAdapter(BackendAdapter)`. Each implements these methods; the runner uses only the base interface.
+Concrete implementations are `TVMAdapter(BackendAdapter)`, `TensorRTAdapter(BackendAdapter)`, `IREEAdapter(BackendAdapter)`, `TorchInductorAdapter(BackendAdapter)`, and `BaselineAdapter(BackendAdapter)`. Each implements these methods; the runner uses only the base interface.
 
 `prepare` performs workload setup without tuning or compilation. `build` encapsulates each backend's internal search and compilation order, including any first invocation needed to finish lazy compilation or autotuning. A baseline's `build` can simply return a callable. `run` must not trigger further tuning or compilation during runtime measurement.
 
@@ -195,6 +196,7 @@ workload:
 
 backends:
   - tensorrt
+  - iree
   - tvm
   - torchinductor
 
@@ -235,6 +237,7 @@ tensor-compiler-bench/
 ├── backends/
 │   ├── base.py
 │   ├── tvm/
+│   ├── iree/
 │   ├── tensorrt/
 │   ├── torchinductor/
 │   └── baseline/
@@ -266,15 +269,16 @@ Keep backend-specific dependencies isolated from the benchmark core.
 | --- | --- |
 | 0 — Skeleton | Workload definition, shared adapter base class, runner, budget, result schema, and CLI; use mock adapters initially. |
 | 1 — Baseline + TensorRT | Implement both adapters; support GEMM, GEMM + RMSNorm, and an elementwise operation; collect optimization time, latency, throughput, and memory usage. |
-| 2 — TVM MetaSchedule | Add the TVM adapter, wall-clock budget handling, and optional optimization trajectories. |
-| 3 — TorchInductor | Add the TorchInductor adapter and exercise operators and fused subgraphs through the same API. |
-| 4 — Analysis | Produce latency comparisons, best latency versus optimization time, and memory versus final latency plots. |
-| 5 — Extensions | Add backends and workloads once the common interface and measurement procedure are stable. |
+| 2 — IREE | Add Turbine AOT import and LLVM CPU/CUDA compilation through the IREE runtime. |
+| 3 — TVM MetaSchedule | Add the TVM adapter, wall-clock budget handling, and optional optimization trajectories. |
+| 4 — TorchInductor | Add the TorchInductor adapter and exercise operators and fused subgraphs through the same API. |
+| 5 — Analysis | Produce latency comparisons, best latency versus optimization time, and memory versus final latency plots. |
+| 6 — Extensions | Add backends and workloads once the common interface and measurement procedure are stable. |
 
 ## 11. Minimum Viable Version
 
 - **Workloads:** GEMM, GEMM + RMSNorm, Softmax, RMSNorm, and GEMM + GELU.
-- **Backends:** PyTorch baseline, Torch-TensorRT, and TVM MetaSchedule.
+- **Backends:** PyTorch baseline, Torch-TensorRT, IREE, and TVM MetaSchedule.
 - **Metrics:** total optimization time, runtime latency, throughput, peak host memory, and peak device memory.
 - **Outputs:** JSON results, CSV summaries, latency comparisons, and optimization trajectory plots where available.
 

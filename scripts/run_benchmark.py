@@ -13,6 +13,7 @@ import tempfile
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKERS = {
     "inductor": PROJECT_ROOT / "examples" / "torch_compile.py",
+    "iree": PROJECT_ROOT / "examples" / "iree_compile.py",
     "tensorrt": PROJECT_ROOT / "examples" / "tensorrt_compile.py",
     "tvm": PROJECT_ROOT / "examples" / "tvm_compile.py",
     "tvm_metaschedule": PROJECT_ROOT / "examples" / "tvm_metaschedule.py",

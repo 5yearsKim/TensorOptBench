@@ -1,0 +1,15 @@
+{
+  "workload": {
+    "name": "softmax",
+    "B": 8,
+    "M": 128,
+    "N": 1024,
+    "dtype": "float16",
+    "seed": 0
+  },
+  "backend": "eager",
+  "device": "cpu",
+  "budget": {"max_time_seconds": 60.0},
+  "runtime": {"warmup": 20, "repetitions": 100},
+  "correctness": {"enabled": true, "reference": "torch_eager"}
+}

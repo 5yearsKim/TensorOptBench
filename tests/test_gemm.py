@@ -11,7 +11,7 @@ from tobench.workloads import GEMM
 class GEMMTests(unittest.TestCase):
     def test_defaults(self):
         workload = GEMM(M=32, N=64, K=16)
-        self.assertEqual((workload.M, workload.N, workload.K), (32, 64, 16))
+        self.assertEqual((workload.B, workload.M, workload.N, workload.K), (8, 32, 64, 16))
         self.assertEqual(workload.dtype, "float16")
         self.assertEqual(workload.seed, 0)
 
@@ -21,24 +21,24 @@ class GEMMTests(unittest.TestCase):
         self.assertEqual(workload.seed, 42)
 
     def test_rectangular_matmul_specification(self):
-        workload = GEMM(M=3, N=5, K=7)
+        workload = GEMM(B=2, M=3, N=5, K=7)
         self.assertEqual(workload.op, "matmul")
-        self.assertEqual(workload.input_shapes, ((3, 7), (7, 5)))
-        self.assertEqual(workload.output_shape, (3, 5))
-        self.assertEqual(workload.flop_count, 210)
+        self.assertEqual(workload.input_shapes, ((2, 3, 7), (2, 7, 5)))
+        self.assertEqual(workload.output_shape, (2, 3, 5))
+        self.assertEqual(workload.flop_count, 420)
 
     def test_numerical_contract_for_both_dtypes(self):
         for dtype in ("float16", "bfloat16"):
             with self.subTest(dtype=dtype):
-                workload = GEMM(M=1, N=1, K=1, dtype=dtype)
+                workload = GEMM(B=2, M=1, N=1, K=1, dtype=dtype)
                 self.assertEqual(workload.layout, "row_major")
-                self.assertEqual(workload.output_shape, (1, 1))
+                self.assertEqual(workload.output_shape, (2, 1, 1))
 
     def test_invalid_dimensions(self):
-        for name in ("M", "N", "K"):
+        for name in ("B", "M", "N", "K"):
             for value in (0, -1, 1.5, "32", True, None):
                 with self.subTest(name=name, value=value):
-                    dimensions = {"M": 32, "N": 64, "K": 16, name: value}
+                    dimensions = {"B": 8, "M": 32, "N": 64, "K": 16, name: value}
                     error = ValueError if type(value) is int else TypeError
                     with self.assertRaisesRegex(error, name):
                         GEMM(**dimensions)
@@ -64,12 +64,19 @@ class GEMMTests(unittest.TestCase):
     def test_forward_known_rectangular_product(self):
         for name, dtype in (("float16", torch.float16), ("bfloat16", torch.bfloat16)):
             with self.subTest(dtype=dtype):
-                workload = GEMM(M=2, N=2, K=3, dtype=name)
-                A = torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=dtype)
-                B = torch.tensor([[7, 8], [9, 10], [11, 12]], dtype=dtype)
+                workload = GEMM(B=2, M=2, N=2, K=3, dtype=name)
+                A = torch.tensor(
+                    [[[1, 2, 3], [4, 5, 6]], [[2, 4, 6], [1, 3, 5]]], dtype=dtype
+                )
+                B = torch.tensor(
+                    [[[7, 8], [9, 10], [11, 12]], [[1, 2], [3, 4], [5, 6]]],
+                    dtype=dtype,
+                )
                 before_A, before_B = A.clone(), B.clone()
                 output = workload(A, B)
-                expected = torch.tensor([[58, 64], [139, 154]], dtype=dtype)
+                expected = torch.tensor(
+                    [[[58, 64], [139, 154]], [[44, 56], [35, 44]]], dtype=dtype
+                )
                 torch.testing.assert_close(output, expected, rtol=0, atol=0)
                 self.assertEqual(tuple(output.shape), workload.output_shape)
                 self.assertEqual(output.dtype, dtype)

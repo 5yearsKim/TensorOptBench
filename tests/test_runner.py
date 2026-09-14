@@ -17,8 +17,11 @@ from tobench.workloads import GEMM
 
 class RunnerTests(unittest.TestCase):
     def setUp(self):
-        self.workload = GEMM(2, 2, 3)
-        self.inputs = (torch.ones(2, 3, dtype=torch.float16), torch.ones(3, 2, dtype=torch.float16))
+        self.workload = GEMM(2, 2, 3, B=1)
+        self.inputs = (
+            torch.ones(1, 2, 3, dtype=torch.float16),
+            torch.ones(1, 3, 2, dtype=torch.float16),
+        )
 
     def test_measurement_boundaries_and_summaries(self):
         clock = [0.0]
@@ -154,7 +157,10 @@ class RunnerTests(unittest.TestCase):
                 with self.assertRaises((ValueError, TypeError)):
                     benchmark(TorchAdapter(), TorchEagerRunner(benchmarker=Benchmarker()), self.workload, self.inputs, **kwargs)
         with self.assertRaisesRegex(ValueError, "shapes"):
-            benchmark(TorchAdapter(), TorchEagerRunner(benchmarker=Benchmarker()), self.workload, (self.inputs[0][:1], self.inputs[1]))
+            benchmark(
+                TorchAdapter(), TorchEagerRunner(benchmarker=Benchmarker()),
+                self.workload, (self.inputs[0][:, :1], self.inputs[1]),
+            )
 
     def test_invalid_budget(self):
         for value in (0, -1, float("inf"), float("nan"), True, "60"):

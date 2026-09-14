@@ -1,9 +1,9 @@
 """Validated experiment configuration, independent of runtime objects."""
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .budget import OptimizationBudget
 
@@ -14,6 +14,7 @@ class _ConfigModel(BaseModel):
 
 class GEMMConfig(_ConfigModel):
     name: Literal["gemm"] = "gemm"
+    B: int = Field(default=8, gt=0)
     M: int = Field(default=128, gt=0)
     N: int = Field(default=128, gt=0)
     K: int = Field(default=128, gt=0)
@@ -43,12 +44,60 @@ class CorrectnessConfig(_ConfigModel):
 
 class RMSNormLinearConfig(_ConfigModel):
     name: Literal["rmsnorm_linear"] = "rmsnorm_linear"
+    B: int = Field(default=4, gt=0)
     M: int = Field(default=16, gt=0)
     N: int = Field(default=406, gt=0)
     K: int = Field(default=4096, gt=0)
     dtype: Literal["float16", "bfloat16"] = "float16"
     seed: int = Field(default=0, ge=0)
     eps: float = Field(default=1e-6, gt=0, allow_inf_nan=False)
+
+
+class SoftmaxConfig(_ConfigModel):
+    name: Literal["softmax"] = "softmax"
+    B: int = Field(default=8, gt=0)
+    M: int = Field(default=128, gt=0)
+    N: int = Field(default=1024, gt=0)
+    dtype: Literal["float16", "bfloat16"] = "float16"
+    seed: int = Field(default=0, ge=0)
+
+
+class AttentionConfig(_ConfigModel):
+    name: Literal["attention"] = "attention"
+    B: int = Field(default=2, gt=0)
+    H: int = Field(default=8, gt=0)
+    S: int = Field(default=128, gt=0)
+    D: int = Field(default=64, gt=0)
+    dtype: Literal["float16", "bfloat16"] = "float16"
+    seed: int = Field(default=0, ge=0)
+
+
+class ConvBNReLUConfig(_ConfigModel):
+    name: Literal["conv_bn_relu"] = "conv_bn_relu"
+    B: int = Field(default=8, gt=0)
+    C_in: int = Field(default=64, gt=0)
+    C_out: int = Field(default=64, gt=0)
+    H: int = Field(default=56, gt=0)
+    W: int = Field(default=56, gt=0)
+    kernel_size: int = Field(default=3, gt=0)
+    stride: int = Field(default=1, gt=0)
+    padding: int = Field(default=1, ge=0)
+    dilation: int = Field(default=1, gt=0)
+    groups: int = Field(default=1, gt=0)
+    dtype: Literal["float16", "bfloat16"] = "float16"
+    seed: int = Field(default=0, ge=0)
+    eps: float = Field(default=1e-5, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_convolution(self) -> Self:
+        if self.C_in % self.groups or self.C_out % self.groups:
+            raise ValueError("C_in and C_out must be divisible by groups")
+        effective_kernel = self.dilation * (self.kernel_size - 1) + 1
+        if self.H + 2 * self.padding < effective_kernel:
+            raise ValueError("kernel configuration produces an empty output height")
+        if self.W + 2 * self.padding < effective_kernel:
+            raise ValueError("kernel configuration produces an empty output width")
+        return self
 
 
 class MetaScheduleConfig(_ConfigModel):
@@ -68,7 +117,10 @@ class IREEConfig(_ConfigModel):
 class BenchmarkConfig(_ConfigModel):
     """One backend/workload experiment; paths are relative to the working directory."""
 
-    workload: GEMMConfig | RMSNormLinearConfig = Field(
+    workload: (
+        GEMMConfig | RMSNormLinearConfig | SoftmaxConfig | AttentionConfig
+        | ConvBNReLUConfig
+    ) = Field(
         default_factory=GEMMConfig, discriminator="name"
     )
     backend: Literal[

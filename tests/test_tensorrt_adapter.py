@@ -26,10 +26,10 @@ class _FakeTorchTensorRT:
 
 class TensorRTBackendTests(unittest.TestCase):
     def setUp(self):
-        self.workload = GEMM(2, 2, 3)
+        self.workload = GEMM(2, 2, 3, B=1)
         self.inputs = (
-            torch.ones(2, 3, dtype=torch.float16),
-            torch.ones(3, 2, dtype=torch.float16),
+            torch.ones(1, 2, 3, dtype=torch.float16),
+            torch.ones(1, 3, 2, dtype=torch.float16),
         )
         _FakeTorchTensorRT.dynamo.calls.clear()
 
@@ -70,7 +70,7 @@ class TensorRTBackendTests(unittest.TestCase):
             runner = TensorRTRunner()
             executable = runner.build(prepared)
         with self.assertRaisesRegex(ValueError, "match"):
-            runner.run(executable, (self.inputs[0][:1], self.inputs[1]))
+            runner.run(executable, (self.inputs[0][:, :1], self.inputs[1]))
 
     def test_missing_optional_dependency_has_install_hint(self):
         prepared = TensorRTPreparedInput(object(), self.inputs)

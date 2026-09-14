@@ -1,0 +1,16 @@
+{
+  "workload": {
+    "name": "attention",
+    "B": 2,
+    "H": 8,
+    "S": 128,
+    "D": 64,
+    "dtype": "float16",
+    "seed": 0
+  },
+  "backend": "eager",
+  "device": "cpu",
+  "budget": {"max_time_seconds": 60.0},
+  "runtime": {"warmup": 20, "repetitions": 100},
+  "correctness": {"enabled": true, "reference": "torch_eager"}
+}

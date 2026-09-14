@@ -91,10 +91,10 @@ def main():
     x64 = X.double()
     # Reproduce a serial FP32 sum to identify TVM's reduction behavior.
     squared = X.float().square()
-    sequential_sum = torch.zeros(X.shape[0], 1, dtype=torch.float32)
-    for k in range(X.shape[1]):
-        sequential_sum = sequential_sum + squared[:, k:k + 1]
-    sequential_mean = sequential_sum / X.shape[1]
+    sequential_sum = torch.zeros(*X.shape[:-1], 1, dtype=torch.float32)
+    for k in range(X.shape[-1]):
+        sequential_sum = sequential_sum + squared[..., k:k + 1]
+    sequential_mean = sequential_sum / X.shape[-1]
     norm64 = x64 * torch.rsqrt(x64.square().mean(-1, keepdim=True) + 1e-6) * G.double()
     ref_out = (norm64.half().double() @ W.double().T).half()
     variants.update({

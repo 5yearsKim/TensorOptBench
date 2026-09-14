@@ -13,10 +13,10 @@ from tobench.workloads import GEMM
 
 class TorchBackendTests(unittest.TestCase):
     def setUp(self):
-        self.workload = GEMM(2, 2, 3)
+        self.workload = GEMM(2, 2, 3, B=1)
         self.inputs = (
-            torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.float16),
-            torch.tensor([[7, 8], [9, 10], [11, 12]], dtype=torch.float16),
+            torch.tensor([[[1, 2, 3], [4, 5, 6]]], dtype=torch.float16),
+            torch.tensor([[[7, 8], [9, 10], [11, 12]]], dtype=torch.float16),
         )
 
     def test_prepare_validates_inputs(self):
@@ -27,7 +27,9 @@ class TorchBackendTests(unittest.TestCase):
     def test_prepared_results_are_independent(self):
         adapter = TorchAdapter()
         first = adapter.prepare(self.workload, self.inputs)
-        second = adapter.prepare(GEMM(1, 1, 1), (torch.ones(1, 1), torch.ones(1, 1)))
+        second = adapter.prepare(
+            GEMM(1, 1, 1, B=1), (torch.ones(1, 1, 1), torch.ones(1, 1, 1))
+        )
         self.assertIs(first.inputs[0], self.inputs[0])
         self.assertIsNot(first, second)
         self.assertEqual(first.workload.M, 2)
@@ -44,7 +46,9 @@ class TorchBackendTests(unittest.TestCase):
         compile_mock.assert_not_called()
         self.assertFalse(output.requires_grad)
         self.assertIsNone(runner.benchmarker)
-        torch.testing.assert_close(output, torch.tensor([[58, 64], [139, 154]], dtype=torch.float16))
+        torch.testing.assert_close(
+            output, torch.tensor([[[58, 64], [139, 154]]], dtype=torch.float16)
+        )
         with self.assertRaisesRegex(RuntimeError, "Benchmarker"):
             runner.benchmark_run(executable)
 
@@ -85,7 +89,7 @@ class TorchBackendTests(unittest.TestCase):
     def test_real_inductor_matches_eager(self):
         for dtype in ("float16", "bfloat16"):
             with self.subTest(dtype=dtype):
-                workload = GEMM(2, 2, 3, dtype=dtype)
+                workload = GEMM(2, 2, 3, B=1, dtype=dtype)
                 inputs = tuple(x.to(getattr(torch, dtype)) for x in self.inputs)
                 prepared = TorchAdapter().prepare(workload, inputs)
                 eager, compiled = TorchEagerRunner(), TorchInductorRunner()

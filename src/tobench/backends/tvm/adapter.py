@@ -75,6 +75,7 @@ class TVMAdapter(BaseAdapter[TVMPreparedInput]):
             exported,
             unwrap_unit_return_tuple=True,
             custom_convert_map={
+                "bmm.default": _convert_matmul,
                 "mm.default": _convert_matmul,
                 "matmul.default": _convert_matmul,
             },

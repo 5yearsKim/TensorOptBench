@@ -9,7 +9,7 @@ from tobench.workloads.base_workload import BaseWorkload
 
 
 class GEMM(BaseWorkload):
-    """Compute C[M, N] = A[M, K] @ B[K, N].
+    """Compute C[B, M, N] = A[B, M, K] @ B[B, K, N].
 
     The benchmark supplies contiguous row-major matrices in the configured
     dtype. There is no transpose, bias, scaling, or existing output accumulation.
@@ -24,41 +24,44 @@ class GEMM(BaseWorkload):
         M: int,
         N: int,
         K: int,
+        B: int = 8,
         dtype: Literal["float16", "bfloat16"] = "float16",
         seed: int = 0,
     ) -> None:
         super().__init__(dtype=dtype, seed=seed)
-        for name, value in (("M", M), ("N", N), ("K", K)):
+        for name, value in (("B", B), ("M", M), ("N", N), ("K", K)):
             if isinstance(value, bool) or not isinstance(value, int):
                 raise TypeError(f"{name} must be an integer")
             if value <= 0:
                 raise ValueError(f"{name} must be positive")
+        self.B = B
         self.M = M
         self.N = N
         self.K = K
 
     @property
-    def input_shapes(self) -> tuple[tuple[int, int], tuple[int, int]]:
+    def input_shapes(self) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
         """Shapes of A and B, in forward argument order."""
-        return ((self.M, self.K), (self.K, self.N))
+        return ((self.B, self.M, self.K), (self.B, self.K, self.N))
 
     @property
-    def output_shape(self) -> tuple[int, int]:
+    def output_shape(self) -> tuple[int, int, int]:
         """Shape of output C."""
-        return (self.M, self.N)
+        return (self.B, self.M, self.N)
 
     @property
     def flop_count(self) -> int:
         """Conventional operation count: two operations per multiply-add."""
-        return 2 * self.M * self.N * self.K
+        return 2 * self.B * self.M * self.N * self.K
 
     def forward(self, A: Tensor, B: Tensor) -> Tensor:
-        return torch.matmul(A, B)
+        return torch.bmm(A, B)
 
     def to_config(self) -> dict:
         return {
             **super().to_config(),
             "op": self.op,
+            "B": self.B,
             "M": self.M,
             "N": self.N,
             "K": self.K,

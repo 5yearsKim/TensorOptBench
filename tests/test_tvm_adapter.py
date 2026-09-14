@@ -6,7 +6,7 @@ import unittest
 
 import torch
 
-from tobench.workloads import GEMM
+from tobench.workloads import Attention, GEMM, Softmax
 
 TVM_AVAILABLE = importlib.util.find_spec("tvm") is not None
 if TVM_AVAILABLE:
@@ -23,7 +23,7 @@ class TVMAdapterContractTests(unittest.TestCase):
         for inputs in ([], [1], [torch.ones(3, 2).T]):
             with self.subTest(inputs=inputs):
                 with self.assertRaises((TypeError, ValueError)):
-                    TVMAdapter().prepare(GEMM(2, 2, 3), inputs)
+                    TVMAdapter().prepare(GEMM(2, 2, 3, B=1), inputs)
 
 
 @unittest.skipUnless(TVM_AVAILABLE, "optional TVM dependency not installed")
@@ -59,7 +59,7 @@ class TVMAdapterIntegrationTests(unittest.TestCase):
                     torch.testing.assert_close(output, expected)
                     self.assertEqual(output.dtype, getattr(torch, dtype))
                 with self.assertRaisesRegex(ValueError, "match"):
-                    runner.run(executable, (inputs[0][:1], inputs[1]))
+                    runner.run(executable, (inputs[0][:, :1], inputs[1]))
                 metadata = json.loads(json.dumps(runner.collect_metadata(prepared)))
                 self.assertEqual(metadata["backend"], "tvm")
                 self.assertFalse(metadata["budget_enforced"])
@@ -68,8 +68,28 @@ class TVMAdapterIntegrationTests(unittest.TestCase):
     def test_target_must_match_input_device(self):
         with self.assertRaisesRegex(ValueError, "llvm target"):
             TVMAdapter(target="cuda").prepare(
-                GEMM(2, 2, 3), (torch.ones(2, 3), torch.ones(3, 2))
+                GEMM(2, 2, 3, B=1),
+                (torch.ones(1, 2, 3), torch.ones(1, 3, 2)),
             )
+
+    def test_softmax_and_attention_match_eager(self):
+        workloads = (
+            Softmax(B=2, M=3, N=7),
+            Attention(B=1, H=2, S=4, D=8),
+        )
+        for workload in workloads:
+            with self.subTest(workload=workload.__class__.__name__):
+                generator = torch.Generator().manual_seed(7)
+                inputs = tuple(
+                    torch.randn(shape, dtype=torch.float16, generator=generator)
+                    for shape in workload.input_shapes
+                )
+                prepared = TVMAdapter(target="llvm").prepare(workload, inputs)
+                runner = TVMRunner()
+                output = runner.run(runner.build(prepared))
+                torch.testing.assert_close(
+                    output, workload(*inputs), rtol=1e-3, atol=1e-3
+                )
 
 
 if __name__ == "__main__":

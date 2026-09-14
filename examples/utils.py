@@ -8,18 +8,36 @@ from pydantic import ValidationError
 
 from tobench.core.config import BenchmarkConfig
 from tobench.core.result import BenchmarkResult
-from tobench.workloads import BaseWorkload, GEMM, RMSNormLinear
+from tobench.workloads import (
+    Attention, BaseWorkload, ConvBNReLU, GEMM, RMSNormLinear, Softmax,
+)
 
 
 def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, help="JSON configuration file")
-    parser.add_argument("--work-type", "--work_type", choices=("gemm", "rmsnorm_linear"))
+    parser.add_argument(
+        "--work-type", "--work_type",
+        choices=("gemm", "rmsnorm_linear", "softmax", "attention", "conv_bn_relu"),
+    )
     parser.add_argument("--device", choices=("cpu", "cuda"))
     parser.add_argument("--dtype", choices=("float16", "bfloat16"))
     parser.add_argument("--m", type=int)
     parser.add_argument("--n", type=int)
     parser.add_argument("--k", type=int)
+    parser.add_argument("--batch-size", "--b", type=int)
+    parser.add_argument("--heads", type=int)
+    parser.add_argument("--seq-len", type=int)
+    parser.add_argument("--head-dim", type=int)
+    parser.add_argument("--in-channels", type=int)
+    parser.add_argument("--out-channels", type=int)
+    parser.add_argument("--height", type=int)
+    parser.add_argument("--width", type=int)
+    parser.add_argument("--kernel-size", type=int)
+    parser.add_argument("--stride", type=int)
+    parser.add_argument("--padding", type=int)
+    parser.add_argument("--dilation", type=int)
+    parser.add_argument("--groups", type=int)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--eps", type=float)
     parser.add_argument("--warmup", type=int)
@@ -52,7 +70,16 @@ def parse_config(backend: str, argv: list[str] | None = None) -> BenchmarkConfig
             value = getattr(args, field)
             if value is not None:
                 data[field] = value
-        for flag, field in (("m", "M"), ("n", "N"), ("k", "K"), ("dtype", "dtype"), ("seed", "seed"), ("eps", "eps")):
+        for flag, field in (
+            ("batch_size", "B"), ("m", "M"), ("n", "N"), ("k", "K"),
+            ("heads", "H"), ("seq_len", "S"), ("head_dim", "D"),
+            ("in_channels", "C_in"), ("out_channels", "C_out"),
+            ("height", "H"), ("width", "W"),
+            ("kernel_size", "kernel_size"), ("stride", "stride"),
+            ("padding", "padding"), ("dilation", "dilation"),
+            ("groups", "groups"),
+            ("dtype", "dtype"), ("seed", "seed"), ("eps", "eps"),
+        ):
             value = getattr(args, flag)
             if value is not None:
                 data["workload"][field] = value
@@ -94,31 +121,50 @@ def create_workload(
     """
     if work_type == "gemm":
         factory = GEMM
-        values = {"M": 128, "N": 128, "K": 128, "dtype": "float16", "seed": 0}
+        values = {"B": 8, "M": 128, "N": 128, "K": 128, "dtype": "float16", "seed": 0}
     elif work_type == "rmsnorm_linear":
         factory = RMSNormLinear
-        values = {"M": 16, "N": 406, "K": 4096, "dtype": "float16", "seed": 0, "eps": 1e-6}
+        values = {"B": 4, "M": 16, "N": 406, "K": 4096, "dtype": "float16", "seed": 0, "eps": 1e-6}
+    elif work_type == "softmax":
+        factory = Softmax
+        values = {"B": 8, "M": 128, "N": 1024, "dtype": "float16", "seed": 0}
+    elif work_type == "attention":
+        factory = Attention
+        values = {"B": 2, "H": 8, "S": 128, "D": 64, "dtype": "float16", "seed": 0}
+    elif work_type == "conv_bn_relu":
+        factory = ConvBNReLU
+        values = {
+            "B": 8, "C_in": 64, "C_out": 64, "H": 56, "W": 56,
+            "kernel_size": 3, "stride": 1, "padding": 1, "dilation": 1,
+            "groups": 1, "dtype": "float16", "seed": 0, "eps": 1e-5,
+        }
     else:
         raise ValueError(f"Unknown workload: {work_type}")
     values.update(parameters or {})
     workload = factory(**values)
     generator = torch.Generator(device=device).manual_seed(workload.seed)
-    inputs = tuple(
-        torch.randn(
+    inputs = []
+    for index, shape in enumerate(workload.input_shapes):
+        tensor_factory = (
+            torch.rand if isinstance(workload, ConvBNReLU) and index == 5 else torch.randn
+        )
+        value = tensor_factory(
             shape, dtype=getattr(torch, workload.dtype), device=device, generator=generator
         )
-        for shape in workload.input_shapes
-    )
-    return workload, inputs
+        inputs.append(value + 0.5 if isinstance(workload, ConvBNReLU) and index == 5 else value)
+    return workload, tuple(inputs)
 
 
 
 def save_and_report(result: BenchmarkResult, config: BenchmarkConfig) -> None:
     """Store the resolved configuration and measurements, then print a summary."""
+    input_generation = "torch.randn with dedicated device generator"
+    if config.workload.name == "conv_bn_relu":
+        input_generation += "; running variance uses torch.rand + 0.5"
     result.configuration = {
         **result.configuration,
         "experiment": config.model_dump(mode="json"),
-        "input_generation": "torch.randn with dedicated device generator",
+        "input_generation": input_generation,
     }
     output = Path(config.output or f"results/{config.workload.name}_{config.backend}.json")
     result.save_json(output)

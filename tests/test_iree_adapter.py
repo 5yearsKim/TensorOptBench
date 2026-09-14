@@ -6,7 +6,7 @@ import unittest
 
 import torch
 
-from tobench.workloads import GEMM, RMSNormLinear
+from tobench.workloads import Attention, GEMM, RMSNormLinear, Softmax
 
 try:
     IREE_AVAILABLE = all(
@@ -26,7 +26,7 @@ class IREEAdapterContractTests(unittest.TestCase):
             IREERunner().build(None)
 
     def test_invalid_inputs(self):
-        workload = GEMM(2, 2, 3)
+        workload = GEMM(2, 2, 3, B=1)
         for inputs in ([], [1], [torch.ones(3, 2).T]):
             with self.subTest(inputs=inputs), self.assertRaises((TypeError, ValueError)):
                 IREEAdapter().prepare(workload, inputs)
@@ -57,7 +57,7 @@ class IREEIntegrationTests(unittest.TestCase):
                     torch.testing.assert_close(output, expected)
                     self.assertEqual(output.dtype, getattr(torch, dtype))
                 with self.assertRaisesRegex(ValueError, "match"):
-                    runner.run(executable, (inputs[0][:1], inputs[1]))
+                    runner.run(executable, (inputs[0][:, :1], inputs[1]))
 
                 metadata = json.loads(json.dumps(runner.collect_metadata(prepared)))
                 self.assertEqual(metadata["backend"], "iree")
@@ -79,6 +79,25 @@ class IREEIntegrationTests(unittest.TestCase):
         runner = IREERunner()
         output = runner.run(runner.build(prepared))
         torch.testing.assert_close(output, workload(*inputs), rtol=1e-3, atol=1e-3)
+
+    def test_softmax_and_attention_match_eager(self):
+        workloads = (
+            Softmax(B=2, M=3, N=7),
+            Attention(B=1, H=2, S=4, D=8),
+        )
+        for workload in workloads:
+            with self.subTest(workload=workload.__class__.__name__):
+                generator = torch.Generator().manual_seed(7)
+                inputs = tuple(
+                    torch.randn(shape, dtype=torch.float16, generator=generator)
+                    for shape in workload.input_shapes
+                )
+                prepared = IREEAdapter().prepare(workload, inputs)
+                runner = IREERunner()
+                output = runner.run(runner.build(prepared))
+                torch.testing.assert_close(
+                    output, workload(*inputs), rtol=1e-3, atol=1e-3
+                )
 
 
 if __name__ == "__main__":

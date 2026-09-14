@@ -1,6 +1,7 @@
 {
   "workload": {
     "name": "rmsnorm_linear",
+    "B": 4,
     "M": 16,
     "N": 406,
     "K": 4096,

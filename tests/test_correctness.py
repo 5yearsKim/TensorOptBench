@@ -90,8 +90,11 @@ class CorrectnessTests(unittest.TestCase):
 
 class CorrectnessExperimentTests(unittest.TestCase):
     def setUp(self):
-        self.workload = GEMM(2, 2, 3)
-        self.inputs = (torch.ones(2, 3, dtype=torch.float16), torch.ones(3, 2, dtype=torch.float16))
+        self.workload = GEMM(2, 2, 3, B=1)
+        self.inputs = (
+            torch.ones(1, 2, 3, dtype=torch.float16),
+            torch.ones(1, 3, 2, dtype=torch.float16),
+        )
         self.monitor = Benchmarker()
 
     def run_benchmark(self, runner=None, **kwargs):

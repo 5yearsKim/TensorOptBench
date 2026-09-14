@@ -40,8 +40,7 @@ absolute-error statistics are `null`.
 Numerical mismatches produce `correctness_failed` and no runtime metrics.
 Reference execution, candidate execution, and comparison exceptions instead
 produce `error`, with the failing stage recorded separately. Eager PyTorch is
-a consistency reference, not a mathematical accuracy guarantee. These checks
-do not change the existing RMSNormLinear tolerance or repair its TVM discrepancy.
+a consistency reference, not a mathematical accuracy guarantee.
 
 Tensor compiler benchmarks with PyTorch workloads, backend-specific preparation
 and execution, and optional benchmark instrumentation.
@@ -78,10 +77,14 @@ before execution. Explicit CLI flags override file settings; omitted settings
 use defaults. Relative paths resolve from the working directory. Results include
 the fully resolved configuration.
 
-Defaults are CPU, FP16, `M=N=K=128`, 20 warmup iterations, and 100 measured runs.
-Flags include `--device cuda`, `--dtype bfloat16`, `--m`, `--n`, `--k`, `--seed`,
-`--warmup`, `--repetitions`, `--budget-seconds`, and `--output`. The budget is
-reported, not enforced; late builds remain eligible for runtime measurement.
+GEMM defaults are CPU, FP16, `B=8`, `M=N=K=128`, 20 warmup iterations, and 100
+measured runs. Dimension flags include `--batch-size`, `--m`, `--n`, `--k`,
+`--heads`, `--seq-len`, and `--head-dim`; common flags include `--device cuda`,
+`--dtype bfloat16`, `--seed`, `--warmup`, `--repetitions`, `--budget-seconds`, and
+`--output`. ConvBNReLU also accepts `--in-channels`, `--out-channels`, `--height`,
+`--width`, `--kernel-size`, `--stride`, `--padding`, `--dilation`, and `--groups`.
+The budget is reported, not enforced; late builds remain eligible for runtime
+measurement.
 
 The code is organized as follows:
 
@@ -115,9 +118,12 @@ src/tobench/
 │   ├── budget.py
 │   └── result.py
 └── workloads/
+    ├── attention.py
     ├── base_workload.py
+    ├── conv_bn_relu.py
     ├── gemm.py
-    └── rmsnorm_linear.py
+    ├── rmsnorm_linear.py
+    └── softmax.py
 scripts/
 └── run_benchmark.py
 ```
@@ -137,7 +143,7 @@ from tobench.workloads import GEMM
 from tobench.backends.torch import TorchAdapter, TorchInductorRunner
 from tobench.benchmarking import Benchmarker
 
-workload = GEMM(M=32, N=64, K=16, dtype="float16", seed=0)
+workload = GEMM(B=2, M=32, N=64, K=16, dtype="float16", seed=0)
 generator = torch.Generator().manual_seed(workload.seed)
 inputs = tuple(torch.randn(shape, dtype=torch.float16, generator=generator)
                for shape in workload.input_shapes)
@@ -178,10 +184,11 @@ uv run --extra iree python scripts/run_benchmark.py --backend iree --device cuda
 
 IREE defaults to optimization level `O3`; select another level with
 `--iree-opt-level O0`, `O1`, `O2`, or `O3`. Runtime inputs must retain the build
-shapes, strides, dtypes, and device. FP16 and BF16 GEMM and a small FP16
-RMSNormLinear graph are tested through the real LLVM CPU compiler. CUDA VM
-bytecode generation is tested offline; CUDA runtime execution and cross-runtime
-synchronization still require validation on the target GPU.
+shapes, strides, dtypes, and device. FP16 and BF16 batched GEMM plus small FP16
+RMSNormLinear, Softmax, and Attention graphs are tested through the real LLVM
+CPU compiler. CUDA VM bytecode generation is tested offline; CUDA runtime
+execution and cross-runtime synchronization still require validation on the
+target GPU.
 
 Torch-TensorRT is an optional CUDA-only graph backend. `TensorRTAdapter` exports
 the complete workload with `torch.export`; `TensorRTRunner` compiles it through
@@ -220,11 +227,10 @@ correctness. MetaSchedule search is available through the separate runner below.
 
 The examples own workload/input creation and backend selection. Shared helpers
 in `examples/utils.py` provide `create_workload(work_type)`, argument parsing,
-and result reporting. The workload factory contains a hardcoded GEMM example
-(`M=N=K=128`, FP16, seed 0) and the RMSNormLinear example described below;
-JSON and CLI parameters can override these values.
-`gemm` and `rmsnorm_linear` are supported. Add new workload mappings in that helper
-and extend the configuration/CLI choices when adding operators.
+and result reporting. The workload factory contains default examples for
+batched GEMM, RMSNormLinear, Softmax, Attention, and ConvBNReLU; JSON and CLI
+parameters can override their values. The supported names are `gemm`,
+`rmsnorm_linear`, `softmax`, `attention`, and `conv_bn_relu`.
 
 The backend example scripts accept `--work-type gemm` (alias `--work_type gemm`).
 Each fixes its backend, overriding the JSON `backend` field. They validate
@@ -260,8 +266,8 @@ Configuration, budget, and result schemas use strict Pydantic validation.
 assignments and revalidate nested containers before JSON export. Workloads
 remain PyTorch modules; prepared state and executables remain runtime dataclasses.
 
-GEMM computes `A[M,K] @ B[K,N] -> C[M,N]` with contiguous row-major inputs in
-FP16/BF16, without bias, transpose, scaling, or existing output accumulation.
+GEMM computes `A[B,M,K] @ B[B,K,N] -> C[B,M,N]` with contiguous row-major inputs
+in FP16/BF16, without bias, transpose, scaling, or existing output accumulation.
 Construction does not allocate inputs or alter the global random seed. Each
 workload has its own file and inherits `BaseWorkload`.
 
@@ -280,37 +286,51 @@ normalized = (normalized * G.float()).to(X.dtype)
 output = normalized @ W.T
 ```
 
-Defaults match the requested graph: `X[16,4096]`, `G[1,4096]`, `W[406,4096]`,
-FP16, and output `[16,406]`. Because W stores `[out_features,in_features]`, the
-projection uses its transpose. Epsilon defaults to `1e-6` and can be set with
-`--eps` or in JSON. Normalization and scale multiplication use FP32 with one
-cast before projection. This defines the numerical contract explicitly; no
-external graph library's unspecified epsilon or rounding rules are assumed.
+Defaults are `X[4,16,4096]`, `G[1,1,4096]`, `W[406,4096]`, FP16, and output
+`[4,16,406]`. The weight is shared across the batch and stores
+`[out_features,in_features]`, so the projection uses its transpose. Epsilon
+defaults to `1e-6` and can be set with `--eps` or in JSON. Normalization and
+scale multiplication use FP32 with one cast before projection. This defines
+the numerical contract explicitly; no external graph library's unspecified
+epsilon or rounding rules are assumed.
 
 ```bash
 uv run python scripts/run_benchmark.py --backend inductor --work-type rmsnorm_linear
 uv run --extra tvm python scripts/run_benchmark.py --backend tvm --config configs/rmsnorm_linear.json
 ```
 
-Dimensions remain configurable through `--m`, `--n`, and `--k`. Changing
+Dimensions remain configurable through `--batch-size`, `--m`, `--n`, and `--k`. Changing
 `--work-type` selects that operator's defaults before applying CLI overrides.
 For this workload, reported TFLOP/s uses the approximate arithmetic count
-`2*M*N*K + 4*M*K + 2*M`, counting reciprocal square root as one operation and
+`B*(2*M*N*K + 4*M*K + 2*M)`, counting reciprocal square root as one operation and
 excluding casts and memory operations. It is not a hardware instruction count.
 
-The requested full-size FP16 example passes correctness checks with TorchInductor
-on CPU. With the tested TVM 0.26 CPU build, it fails the current FP16 tolerance
-on some outputs, although small FP16/BF16 cases pass. The benchmark records
-`correctness_failed` and omits runtime metrics in that case. The tolerance has
-not been relaxed. CUDA has not been tested.
+`Softmax` applies last-axis softmax to `X[B,M,N]`, using FP32 for the reduction
+and returning the configured input dtype. `Attention` implements unmasked,
+scaled dot-product attention over BHSD tensors as explicit QK transpose
+matmul, FP32 softmax, and probability-value matmul. Its defaults are
+`B=2`, `H=8`, `S=128`, and `D=64`.
 
-The CPU discrepancy was traced to the FP32 mean-square reduction. TVM's lowered
-reduction and a manually accumulated sequential FP32 sum agree exactly. At the
-default shape and seed, the mean differs from PyTorch by up to `3.22e-6`, changing
-88 normalized values after FP16 rounding. Feeding those values to PyTorch's
-projection produces 39 tolerance failures; the full TVM graph produces 40.
-TVM projection on PyTorch-normalized inputs produces no tolerance failures.
-This identifies reduction error followed by FP16 rounding as the main source.
+```bash
+uv run python scripts/run_benchmark.py --backend inductor --work-type softmax
+uv run --extra iree python scripts/run_benchmark.py --backend iree --work-type attention
+```
+
+`ConvBNReLU` applies a bias-free NCHW convolution, inference BatchNorm, and ReLU.
+Its explicit inputs are the activation, OIHW convolution weight, BatchNorm
+gamma, beta, running mean, and positive running variance. BatchNorm arithmetic
+uses FP32 before casting back to the configured dtype. Defaults represent a
+`3x3` ResNet-style feature convolution with `B=8`, 64 input/output channels,
+and a `56x56` feature map.
+
+```bash
+uv run python scripts/run_benchmark.py --backend inductor --work-type conv_bn_relu
+```
+
+Small batched FP16 RMSNormLinear cases pass correctness checks with
+TorchInductor, IREE LLVM CPU, and TVM LLVM CPU. CUDA execution has not been
+tested. Larger reductions can amplify backend-specific FP32 ordering
+differences before the normalized values are rounded to FP16.
 
 Reproduce the stage comparisons and FP64 reference checks:
 
@@ -318,7 +338,7 @@ Reproduce the stage comparisons and FP64 reference checks:
 uv run --extra tvm python scripts/diagnose_rmsnorm_linear.py
 ```
 
-The script writes comparison statistics and Relax/lowered IR under
+The script writes batched stage comparisons and Relax/lowered IR under
 `results/rmsnorm_diagnosis/`. It does not alter workload semantics or tolerances.
 
 TVM MetaSchedule tuning

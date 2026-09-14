@@ -45,9 +45,8 @@ The common API must support backends with or without autotuning.
 - Elementwise Add
 - ReLU
 - Reduction
-- GEMM
-- GEMM + RMSNorm (matrix multiplication followed by RMSNorm)
 - Batched GEMM
+- GEMM + RMSNorm (matrix multiplication followed by RMSNorm)
 - Conv2D
 
 ### Level 2 — Common ML operators
@@ -62,13 +61,14 @@ The common API must support backends with or without autotuning.
 
 - MatMul → Bias → GELU
 - QK MatMul → Softmax → PV MatMul
+- Conv2D → inference BatchNorm → ReLU
 
 These workloads expose fusion, intermediate materialization, layout choices, and kernel boundaries. Each workload specifies computation semantics, shapes, dtype, and operator parameters independently of backend implementation.
 
 ```python
 Workload(
     op="matmul",
-    shapes=[(4096, 4096), (4096, 4096)],
+    shapes=[(8, 4096, 4096), (8, 4096, 4096)],
     dtype="float16",
 )
 ```
@@ -189,6 +189,7 @@ Example configuration:
 ```yaml
 workload:
   name: matmul
+  B: 8
   M: 4096
   N: 4096
   K: 4096
@@ -277,7 +278,7 @@ Keep backend-specific dependencies isolated from the benchmark core.
 
 ## 11. Minimum Viable Version
 
-- **Workloads:** GEMM, GEMM + RMSNorm, Softmax, RMSNorm, and GEMM + GELU.
+- **Workloads:** Batched GEMM, RMSNormLinear, Softmax, Attention, and ConvBNReLU.
 - **Backends:** PyTorch baseline, Torch-TensorRT, IREE, and TVM MetaSchedule.
 - **Metrics:** total optimization time, runtime latency, throughput, peak host memory, and peak device memory.
 - **Outputs:** JSON results, CSV summaries, latency comparisons, and optimization trajectory plots where available.

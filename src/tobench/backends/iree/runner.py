@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
+from types import ModuleType
 from typing import Any
 
 import torch
@@ -21,6 +22,7 @@ else:
 from tobench.backends.base_runner import BaseRunner
 from tobench.benchmarking import Benchmarker
 from tobench.core.budget import OptimizationBudget
+
 from .prepared import IREEExecutable, IREEPreparedInput
 
 
@@ -31,7 +33,7 @@ def _signature(inputs: Sequence[Tensor]) -> tuple:
     )
 
 
-def _require_iree():
+def _require_iree() -> tuple[ModuleType, ModuleType]:
     if ireec is None or ireert is None:
         raise ImportError(
             'The IREE backend is optional. Install it with: pip install -e ".[iree]"'

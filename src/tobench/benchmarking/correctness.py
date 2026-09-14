@@ -22,35 +22,53 @@ class CorrectnessChecker:
         if not isinstance(actual, Tensor) or not isinstance(reference, Tensor):
             raise TypeError("correctness comparison requires Tensor outputs")
         config = self.config.resolved(str(reference.dtype).removeprefix("torch."))
-        common = {"reference": config.reference, "rtol": config.rtol, "atol": config.atol}
+        common = {
+            "reference": config.reference,
+            "rtol": config.rtol,
+            "atol": config.atol,
+        }
         if not config.enabled:
-            return CorrectnessResult(**common, status="skipped", message="Disabled by configuration")
+            return CorrectnessResult(
+                **common, status="skipped", message="Disabled by configuration"
+            )
         shape_match = actual.shape == reference.shape
         dtype_match = actual.dtype == reference.dtype
         a = actual.detach().to(device="cpu", dtype=torch.float64)
         r = reference.detach().to(device="cpu", dtype=torch.float64)
-        common.update({
-            "shape_match": shape_match, "dtype_match": dtype_match,
-            "actual_shape": list(actual.shape), "reference_shape": list(reference.shape),
-            "actual_dtype": str(actual.dtype), "reference_dtype": str(reference.dtype),
-            "actual_nonfinite_count": int((~torch.isfinite(a)).sum()),
-            "reference_nonfinite_count": int((~torch.isfinite(r)).sum()),
-            "total_elements": reference.numel(),
-        })
+        common.update(
+            {
+                "shape_match": shape_match,
+                "dtype_match": dtype_match,
+                "actual_shape": list(actual.shape),
+                "reference_shape": list(reference.shape),
+                "actual_dtype": str(actual.dtype),
+                "reference_dtype": str(reference.dtype),
+                "actual_nonfinite_count": int((~torch.isfinite(a)).sum()),
+                "reference_nonfinite_count": int((~torch.isfinite(r)).sum()),
+                "total_elements": reference.numel(),
+            }
+        )
         if not shape_match:
-            return CorrectnessResult(**common, status="failed", message="Output shape mismatch")
+            return CorrectnessResult(
+                **common, status="failed", message="Output shape mismatch"
+            )
         finite = torch.isfinite(a) & torch.isfinite(r)
         error = (a[finite] - r[finite]).abs()
         threshold = config.atol + config.rtol * r[finite].abs()
         failed = int((~finite).sum()) + int((error > threshold).sum())
         passed = dtype_match and failed == 0
         return CorrectnessResult(
-            **common, status="passed" if passed else "failed",
-            finite_elements=int(finite.sum()), failed_elements=failed,
+            **common,
+            status="passed" if passed else "failed",
+            finite_elements=int(finite.sum()),
+            failed_elements=failed,
             max_absolute_error=float(error.max()) if error.numel() else None,
             mean_absolute_error=float(error.mean()) if error.numel() else None,
-            message=None if passed else (
-                "Output dtype mismatch" if not dtype_match else
-                f"{failed} of {reference.numel()} elements failed tolerance or finiteness checks"
+            message=None
+            if passed
+            else (
+                "Output dtype mismatch"
+                if not dtype_match
+                else f"{failed} of {reference.numel()} elements failed tolerance or finiteness checks"
             ),
         )

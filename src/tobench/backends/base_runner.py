@@ -18,17 +18,24 @@ class BaseRunner(ABC, Generic[Prepared, Executable]):
     def __init__(self, benchmarker: Benchmarker | None = None) -> None:
         self.benchmarker = benchmarker
 
-    def build(self, prepared: Prepared, budget: OptimizationBudget | None = None) -> Executable:
+    def build(
+        self, prepared: Prepared, budget: OptimizationBudget | None = None
+    ) -> Executable:
         """Build once, optionally recording elapsed time and budget overrun."""
         if self.benchmarker is None:
             return self._build(prepared, budget)
         return self.benchmarker.measure_build(
-            lambda: self._build(prepared, budget), lambda: self.synchronize(prepared), budget
+            lambda: self._build(prepared, budget),
+            lambda: self.synchronize(prepared),
+            budget,
         )
 
     def run(
-        self, executable: Executable, inputs: Sequence[Tensor] | None = None,
-        *, measure: bool = True,
+        self,
+        executable: Executable,
+        inputs: Sequence[Tensor] | None = None,
+        *,
+        measure: bool = True,
     ) -> Tensor:
         """Execute exactly once. Disable measurement for correctness checks."""
         if self.benchmarker is None or not measure:
@@ -38,7 +45,11 @@ class BaseRunner(ABC, Generic[Prepared, Executable]):
         )
 
     def benchmark_run(
-        self, executable: Executable, *, warmup: int = 20, repetitions: int = 100,
+        self,
+        executable: Executable,
+        *,
+        warmup: int = 20,
+        repetitions: int = 100,
     ) -> dict[str, float | None]:
         """Replace latency samples with an explicit warmup/repetition experiment."""
         if self.benchmarker is None:
@@ -54,13 +65,16 @@ class BaseRunner(ABC, Generic[Prepared, Executable]):
         return self.benchmarker.summary()
 
     @abstractmethod
-    def _build(self, prepared: Prepared, budget: OptimizationBudget | None) -> Executable:
+    def _build(
+        self, prepared: Prepared, budget: OptimizationBudget | None
+    ) -> Executable:
         """Compile and materialize an executable without recording run samples."""
         ...
 
     @abstractmethod
-    def _run(self, executable: Executable, inputs: Sequence[Tensor] | None) -> Tensor:
-        ...
+    def _run(
+        self, executable: Executable, inputs: Sequence[Tensor] | None
+    ) -> Tensor: ...
 
     @abstractmethod
     def synchronize(self, state: Prepared | Executable) -> None:
@@ -68,5 +82,4 @@ class BaseRunner(ABC, Generic[Prepared, Executable]):
         ...
 
     @abstractmethod
-    def collect_metadata(self, prepared: Prepared) -> dict[str, Any]:
-        ...
+    def collect_metadata(self, prepared: Prepared) -> dict[str, Any]: ...

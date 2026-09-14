@@ -19,6 +19,7 @@ except ModuleNotFoundError as error:
 
 from tobench.backends.base_adapter import BaseAdapter
 from tobench.workloads import BaseWorkload
+
 from .prepared import TVMPreparedInput
 
 
@@ -40,7 +41,9 @@ class TVMAdapter(BaseAdapter[TVMPreparedInput]):
         self.target = target
 
     @torch.no_grad()
-    def prepare(self, workload: BaseWorkload, inputs: Sequence[Tensor]) -> TVMPreparedInput:
+    def prepare(
+        self, workload: BaseWorkload, inputs: Sequence[Tensor]
+    ) -> TVMPreparedInput:
         """Export/import the graph without compiling a VM executable."""
         if not isinstance(workload, BaseWorkload):
             raise TypeError("workload must be a BaseWorkload module")
@@ -81,6 +84,8 @@ class TVMAdapter(BaseAdapter[TVMPreparedInput]):
             },
         )
         return TVMPreparedInput(
-            mod=mod, inputs=tuple(inputs), target=target,
+            mod=mod,
+            inputs=tuple(inputs),
+            target=target,
             device=tvm.device(device.type, device.index or 0),
         )

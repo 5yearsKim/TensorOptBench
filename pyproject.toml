@@ -20,3 +20,19 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.7",
+]
+
+[tool.ruff]
+include = ["src/**/*.py"]
+
+[tool.ruff.lint]
+select = ["ANN", "I"]
+
+# too strict/noisy for projects
+ignore = [
+    "ANN401",  # Allow typing.Any
+]

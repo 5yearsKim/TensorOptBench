@@ -21,9 +21,14 @@ class RMSNormLinear(BaseWorkload):
     layout = "row_major"
 
     def __init__(
-        self, B: int = 4, M: int = 16, N: int = 406, K: int = 4096,
+        self,
+        B: int = 4,
+        M: int = 16,
+        N: int = 406,
+        K: int = 4096,
         dtype: Literal["float16", "bfloat16"] = "float16",
-        seed: int = 0, eps: float = 1e-6,
+        seed: int = 0,
+        eps: float = 1e-6,
     ) -> None:
         super().__init__(dtype=dtype, seed=seed)
         for name, value in (("B", B), ("M", M), ("N", N), ("K", K)):
@@ -54,7 +59,9 @@ class RMSNormLinear(BaseWorkload):
         Per batch, projection uses 2*M*N*K and normalization/scaling uses
         4*M*K + 2*M. Casts and memory operations are excluded.
         """
-        return self.B * (2 * self.M * self.N * self.K + 4 * self.M * self.K + 2 * self.M)
+        return self.B * (
+            2 * self.M * self.N * self.K + 4 * self.M * self.K + 2 * self.M
+        )
 
     def forward(self, X: Tensor, G: Tensor, W: Tensor) -> Tensor:
         x = X.float()
@@ -64,10 +71,16 @@ class RMSNormLinear(BaseWorkload):
 
     def to_config(self) -> dict:
         return {
-            **super().to_config(), "op": self.op,
-            "B": self.B, "M": self.M, "N": self.N, "K": self.K,
-            "eps": self.eps, "normalization_axis": -1,
-            "normalization_dtype": "float32", "layout": self.layout,
+            **super().to_config(),
+            "op": self.op,
+            "B": self.B,
+            "M": self.M,
+            "N": self.N,
+            "K": self.K,
+            "eps": self.eps,
+            "normalization_axis": -1,
+            "normalization_dtype": "float32",
+            "layout": self.layout,
             "weight_layout": "out_features_in_features",
             "flop_count_convention": "B*(2*M*N*K + 4*M*K + 2*M); rsqrt counts as one",
         }

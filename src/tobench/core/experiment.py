@@ -10,13 +10,13 @@ from torch import Tensor
 
 from tobench.backends.base_adapter import BaseAdapter
 from tobench.backends.base_runner import BaseRunner
-
-from .budget import OptimizationBudget
-from .result import BenchmarkResult, CorrectnessResult
-from .config import CorrectnessConfig
 from tobench.benchmarking.correctness import CorrectnessChecker
 from tobench.benchmarking.reference import TorchEagerReference
 from tobench.workloads.base_workload import BaseWorkload
+
+from .budget import OptimizationBudget
+from .config import CorrectnessConfig
+from .result import BenchmarkResult, CorrectnessResult
 
 
 def _synchronize(device: torch.device) -> None:
@@ -46,7 +46,10 @@ def benchmark(
     late executable, because current adapters cannot enforce cancellation.
     Operational failures return an error result; invalid arguments raise.
     """
-    for name, value, minimum in (("warmup", warmup, 0), ("repetitions", repetitions, 1)):
+    for name, value, minimum in (
+        ("warmup", warmup, 0),
+        ("repetitions", repetitions, 1),
+    ):
         if isinstance(value, bool) or not isinstance(value, int):
             raise TypeError(f"{name} must be an integer")
         if value < minimum:
@@ -86,7 +89,11 @@ def benchmark(
             "memory_measurement": "not_implemented",
             "correctness": correctness.model_dump(mode="json"),
             "inputs": [
-                {"shape": list(x.shape), "stride": list(x.stride()), "dtype": str(x.dtype)}
+                {
+                    "shape": list(x.shape),
+                    "stride": list(x.stride()),
+                    "dtype": str(x.dtype),
+                }
                 for x in inputs
             ],
         },
@@ -95,7 +102,9 @@ def benchmark(
             "platform": platform.platform(),
             "machine": platform.machine(),
             "device": str(device),
-            "gpu_name": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
+            "gpu_name": torch.cuda.get_device_name(device)
+            if device.type == "cuda"
+            else None,
             "torch_version": str(torch.__version__),
             "cuda_version": torch.version.cuda,
             "torch_num_threads": torch.get_num_threads(),
@@ -136,24 +145,31 @@ def benchmark(
             output = runner.run(executable, measure=False)
             runner.synchronize(executable)
             stage = "correctness_comparison"
-            result.correctness = CorrectnessChecker(correctness).compare(output, reference)
+            result.correctness = CorrectnessChecker(correctness).compare(
+                output, reference
+            )
             del output, reference
             if result.correctness.status == "failed":
                 result.status = "correctness_failed"
                 result.error = {
-                    "stage": "correctness", "type": "CorrectnessMismatch",
+                    "stage": "correctness",
+                    "type": "CorrectnessMismatch",
                     "message": result.correctness.message,
                 }
                 return result
         else:
             result.correctness = CorrectnessResult(
-                status="skipped", reference=correctness.reference,
-                rtol=correctness.rtol, atol=correctness.atol,
+                status="skipped",
+                reference=correctness.reference,
+                rtol=correctness.rtol,
+                atol=correctness.atol,
                 message="Disabled by configuration",
             )
 
         stage = "runtime"
-        summary = runner.benchmark_run(executable, warmup=warmup, repetitions=repetitions)
+        summary = runner.benchmark_run(
+            executable, warmup=warmup, repetitions=repetitions
+        )
         result.median_latency_ms = summary["median_latency_ms"]
         result.p95_latency_ms = summary["p95_latency_ms"]
         flop_count = getattr(workload, "flop_count", None)
@@ -167,11 +183,18 @@ def benchmark(
         result.status = "error"
         if stage.startswith("correctness_"):
             result.correctness = CorrectnessResult(
-                status="error", reference=correctness.reference,
-                rtol=correctness.rtol, atol=correctness.atol,
-                message=str(error), error_stage=stage,
+                status="error",
+                reference=correctness.reference,
+                rtol=correctness.rtol,
+                atol=correctness.atol,
+                message=str(error),
+                error_stage=stage,
             )
-        result.error = {"stage": stage, "type": type(error).__name__, "message": str(error)}
+        result.error = {
+            "stage": stage,
+            "type": type(error).__name__,
+            "message": str(error),
+        }
     finally:
         result.optimization_time_seconds = benchmarker.optimization_time_seconds
         result.budget_overrun_seconds = benchmarker.budget_overrun_seconds

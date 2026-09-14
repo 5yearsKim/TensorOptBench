@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
+from types import ModuleType
 from typing import Any
 
 import torch
@@ -20,11 +21,12 @@ else:
 from tobench.backends.base_runner import BaseRunner
 from tobench.benchmarking import Benchmarker
 from tobench.core.budget import OptimizationBudget
+
 from .adapter import _host_signature
 from .prepared import XLAExecutable, XLAPreparedInput
 
 
-def _require_xla():
+def _require_xla() -> ModuleType:
     if torch_xla is None:
         raise ImportError(
             "The XLA backend is optional. Install matching torch and torch-xla "

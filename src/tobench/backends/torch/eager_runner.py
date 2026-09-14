@@ -8,17 +8,22 @@ from torch import Tensor
 
 from tobench.backends.base_runner import BaseRunner
 from tobench.core.budget import OptimizationBudget
+
 from .prepared import TorchExecutable, TorchPreparedInput
 
 
 class TorchEagerRunner(BaseRunner[TorchPreparedInput, TorchExecutable]):
-    def _build(self, prepared: TorchPreparedInput, budget: OptimizationBudget | None) -> TorchExecutable:
+    def _build(
+        self, prepared: TorchPreparedInput, budget: OptimizationBudget | None
+    ) -> TorchExecutable:
         if not isinstance(prepared, TorchPreparedInput):
             raise TypeError("expected TorchPreparedInput from TorchAdapter.prepare")
         return TorchExecutable(prepared.workload, prepared.inputs)
 
     @torch.inference_mode()
-    def _run(self, executable: TorchExecutable, inputs: Sequence[Tensor] | None) -> Tensor:
+    def _run(
+        self, executable: TorchExecutable, inputs: Sequence[Tensor] | None
+    ) -> Tensor:
         return executable.module(*(executable.inputs if inputs is None else inputs))
 
     def synchronize(self, state: TorchPreparedInput | TorchExecutable) -> None:

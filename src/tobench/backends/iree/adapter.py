@@ -1,6 +1,7 @@
 """Export complete PyTorch workload graphs through IREE Turbine AOT."""
 
 from collections.abc import Sequence
+from types import ModuleType
 
 import torch
 from torch import Tensor
@@ -17,10 +18,11 @@ else:
 
 from tobench.backends.base_adapter import BaseAdapter
 from tobench.workloads import BaseWorkload
+
 from .prepared import IREEPreparedInput
 
 
-def _require_turbine():
+def _require_turbine() -> ModuleType:
     if aot is None:
         raise ImportError(
             'The IREE backend is optional. Install it with: pip install -e ".[iree]"'

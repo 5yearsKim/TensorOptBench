@@ -9,7 +9,9 @@ from .budget import OptimizationBudget
 
 
 class _ConfigModel(BaseModel):
-    model_config = ConfigDict(strict=True, frozen=True, extra="forbid", validate_default=True)
+    model_config = ConfigDict(
+        strict=True, frozen=True, extra="forbid", validate_default=True
+    )
 
 
 class GEMMConfig(_ConfigModel):
@@ -36,10 +38,12 @@ class CorrectnessConfig(_ConfigModel):
     def resolved(self, dtype: str) -> "CorrectnessConfig":
         """Preserve existing FP16/BF16 defaults when thresholds are omitted."""
         default = 1e-2 if dtype == "bfloat16" else 1e-3
-        return self.model_copy(update={
-            "rtol": default if self.rtol is None else self.rtol,
-            "atol": default if self.atol is None else self.atol,
-        })
+        return self.model_copy(
+            update={
+                "rtol": default if self.rtol is None else self.rtol,
+                "atol": default if self.atol is None else self.atol,
+            }
+        )
 
 
 class RMSNormLinearConfig(_ConfigModel):
@@ -118,11 +122,12 @@ class BenchmarkConfig(_ConfigModel):
     """One backend/workload experiment; paths are relative to the working directory."""
 
     workload: (
-        GEMMConfig | RMSNormLinearConfig | SoftmaxConfig | AttentionConfig
+        GEMMConfig
+        | RMSNormLinearConfig
+        | SoftmaxConfig
+        | AttentionConfig
         | ConvBNReLUConfig
-    ) = Field(
-        default_factory=GEMMConfig, discriminator="name"
-    )
+    ) = Field(default_factory=GEMMConfig, discriminator="name")
     backend: Literal[
         "eager", "inductor", "iree", "tensorrt", "tvm", "tvm_metaschedule", "xla"
     ] = "eager"
@@ -136,7 +141,7 @@ class BenchmarkConfig(_ConfigModel):
 
     @field_validator("workload", mode="before")
     @classmethod
-    def default_workload_name(cls, value):
+    def default_workload_name(cls, value: object) -> object:
         # Preserve existing GEMM JSON files which omit the operator name.
         if isinstance(value, dict) and "name" not in value:
             return {"name": "gemm", **value}

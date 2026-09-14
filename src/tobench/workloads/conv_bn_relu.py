@@ -35,9 +35,15 @@ class ConvBNReLU(BaseWorkload):
     ) -> None:
         super().__init__(dtype=dtype, seed=seed)
         dimensions = (
-            ("B", B), ("C_in", C_in), ("C_out", C_out), ("H", H), ("W", W),
-            ("kernel_size", kernel_size), ("stride", stride),
-            ("dilation", dilation), ("groups", groups),
+            ("B", B),
+            ("C_in", C_in),
+            ("C_out", C_out),
+            ("H", H),
+            ("W", W),
+            ("kernel_size", kernel_size),
+            ("stride", stride),
+            ("dilation", dilation),
+            ("groups", groups),
         )
         for name, value in dimensions:
             if isinstance(value, bool) or not isinstance(value, int):
@@ -89,8 +95,11 @@ class ConvBNReLU(BaseWorkload):
     def flop_count(self) -> int:
         output_elements = math.prod(self.output_shape)
         convolution = (
-            2 * output_elements * (self.C_in // self.groups)
-            * self.kernel_size * self.kernel_size
+            2
+            * output_elements
+            * (self.C_in // self.groups)
+            * self.kernel_size
+            * self.kernel_size
         )
         batch_norm_relu = 5 * output_elements + 2 * self.C_out
         return convolution + batch_norm_relu
@@ -105,14 +114,20 @@ class ConvBNReLU(BaseWorkload):
         running_variance: Tensor,
     ) -> Tensor:
         convolved = F.conv2d(
-            X, weight, stride=self.stride, padding=self.padding,
-            dilation=self.dilation, groups=self.groups,
+            X,
+            weight,
+            stride=self.stride,
+            padding=self.padding,
+            dilation=self.dilation,
+            groups=self.groups,
         )
         shape = (1, self.C_out, 1, 1)
         mean = running_mean.float().reshape(shape)
         inverse_std = torch.rsqrt(running_variance.float().reshape(shape) + self.eps)
         normalized = (convolved.float() - mean) * inverse_std
-        normalized = normalized * gamma.float().reshape(shape) + beta.float().reshape(shape)
+        normalized = normalized * gamma.float().reshape(shape) + beta.float().reshape(
+            shape
+        )
         return torch.relu(normalized.to(X.dtype))
 
     def to_config(self) -> dict:

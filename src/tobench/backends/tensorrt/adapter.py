@@ -7,6 +7,7 @@ from torch import Tensor
 
 from tobench.backends.base_adapter import BaseAdapter
 from tobench.workloads import BaseWorkload
+
 from .prepared import TensorRTPreparedInput
 
 

@@ -1,7 +1,8 @@
 """Compile exported PyTorch graphs into TensorRT engines and execute them."""
 
-from collections.abc import Sequence
 import os
+from collections.abc import Sequence
+from types import ModuleType
 from typing import Any
 
 import torch
@@ -22,6 +23,7 @@ else:
 from tobench.backends.base_runner import BaseRunner
 from tobench.benchmarking import Benchmarker
 from tobench.core.budget import OptimizationBudget
+
 from .prepared import TensorRTExecutable, TensorRTPreparedInput
 
 
@@ -32,11 +34,11 @@ def _signature(inputs: Sequence[Tensor]) -> tuple:
     )
 
 
-def _require_torch_tensorrt():
+def _require_torch_tensorrt() -> ModuleType:
     if torch_tensorrt is None:
         raise ImportError(
-            'The TensorRT backend is optional. Install it in a CUDA environment '
-            'with compatible versions of: torch-tensorrt and tensorrt'
+            "The TensorRT backend is optional. Install it in a CUDA environment "
+            "with compatible versions of: torch-tensorrt and tensorrt"
         ) from _IMPORT_ERROR
     return torch_tensorrt
 
@@ -59,7 +61,9 @@ class TensorRTRunner(BaseRunner[TensorRTPreparedInput, TensorRTExecutable]):
             or not isinstance(optimization_level, int)
             or not 0 <= optimization_level <= 5
         ):
-            raise ValueError("optimization_level must be an integer from 0 to 5 or None")
+            raise ValueError(
+                "optimization_level must be an integer from 0 to 5 or None"
+            )
         self.min_block_size = min_block_size
         self.optimization_level = optimization_level
 

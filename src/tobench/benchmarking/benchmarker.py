@@ -28,7 +28,9 @@ class Benchmarker:
         self.phase = "build"
 
     def measure_build(
-        self, operation: Callable[[], T], synchronize: Callable[[], None],
+        self,
+        operation: Callable[[], T],
+        synchronize: Callable[[], None],
         budget: OptimizationBudget | None,
     ) -> T:
         self.reset()
@@ -45,7 +47,9 @@ class Benchmarker:
                     0.0, self.optimization_time_seconds - budget.max_time_seconds
                 )
 
-    def measure_run(self, operation: Callable[[], T], synchronize: Callable[[], None]) -> T:
+    def measure_run(
+        self, operation: Callable[[], T], synchronize: Callable[[], None]
+    ) -> T:
         self.phase = "runtime"
         synchronize()
         started = perf_counter()
@@ -61,5 +65,7 @@ class Benchmarker:
         samples = self.latency_samples_ms
         return {
             "median_latency_ms": median(samples) if samples else None,
-            "p95_latency_ms": sorted(samples)[math.ceil(0.95 * len(samples)) - 1] if samples else None,
+            "p95_latency_ms": sorted(samples)[math.ceil(0.95 * len(samples)) - 1]
+            if samples
+            else None,
         }

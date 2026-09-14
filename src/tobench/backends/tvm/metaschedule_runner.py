@@ -12,13 +12,16 @@ from tvm.s_tir.meta_schedule import relax_integration
 from tobench.benchmarking import Benchmarker
 from tobench.core.budget import OptimizationBudget
 from tobench.core.config import MetaScheduleConfig
+
 from .prepared import TVMPreparedInput
 from .runner import TVMRunner
 
 
 class TVMMetaScheduleRunner(TVMRunner):
     def __init__(
-        self, benchmarker: Benchmarker | None = None, *,
+        self,
+        benchmarker: Benchmarker | None = None,
+        *,
         tuning: MetaScheduleConfig | None = None,
     ) -> None:
         super().__init__(benchmarker)
@@ -35,7 +38,9 @@ class TVMMetaScheduleRunner(TVMRunner):
             )
         return target
 
-    def _compile(self, prepared: TVMPreparedInput, budget: OptimizationBudget | None) -> Any:
+    def _compile(
+        self, prepared: TVMPreparedInput, budget: OptimizationBudget | None
+    ) -> Any:
         self.work_dir = None
         self.tuning_records = None
         if self.tuning.cost_model == "xgb":
@@ -60,32 +65,47 @@ class TVMMetaScheduleRunner(TVMRunner):
         with target:
             mod = relax.get_pipeline("zero")(prepared.mod)
         database = relax_integration.tune_relax(
-            mod=mod, params={}, target=target, work_dir=self.work_dir,
+            mod=mod,
+            params={},
+            target=target,
+            work_dir=self.work_dir,
             max_trials_global=self.tuning.max_trials_global,
             max_trials_per_task=self.tuning.max_trials_per_task,
             num_trials_per_iter=self.tuning.num_trials_per_iter,
-            seed=self.tuning.seed, cost_model=self.tuning.cost_model,
+            seed=self.tuning.seed,
+            cost_model=self.tuning.cost_model,
         )
         self.tuning_records = len(database)
         if not self.tuning_records:
-            raise RuntimeError("MetaSchedule produced no valid tuning records; inspect " + self.work_dir)
+            raise RuntimeError(
+                "MetaSchedule produced no valid tuning records; inspect "
+                + self.work_dir
+            )
         return relax_integration.compile_relax(
             # compile_relax performs legalization/fusion itself. Passing the
             # already-fused module adds op_pattern attrs and breaks record lookup.
-            database=database, mod=prepared.mod, target=target, params={}, enable_warning=True,
+            database=database,
+            mod=prepared.mod,
+            target=target,
+            params={},
+            enable_warning=True,
         )
 
     def collect_metadata(self, prepared: TVMPreparedInput) -> dict[str, Any]:
         metadata = super().collect_metadata(prepared)
         metadata["backend"] = "tvm_metaschedule"
-        metadata["configuration"].update({
-            "pipeline": "meta_schedule.relax_integration.tune_relax -> compile_relax",
-            "target": str(self._target(prepared)),
-            "autotuning": True,
-            "tuning": self.tuning.model_dump(mode="json"),
-            "work_dir": self.work_dir,
-            "tuning_records": self.tuning_records,
-            "tuning_database_policy": "fresh" if self.tuning.work_dir is None else "reuse",
-            "budget_limitation": "trial limits only; wall-clock budget is not enforced",
-        })
+        metadata["configuration"].update(
+            {
+                "pipeline": "meta_schedule.relax_integration.tune_relax -> compile_relax",
+                "target": str(self._target(prepared)),
+                "autotuning": True,
+                "tuning": self.tuning.model_dump(mode="json"),
+                "work_dir": self.work_dir,
+                "tuning_records": self.tuning_records,
+                "tuning_database_policy": "fresh"
+                if self.tuning.work_dir is None
+                else "reuse",
+                "budget_limitation": "trial limits only; wall-clock budget is not enforced",
+            }
+        )
         return metadata

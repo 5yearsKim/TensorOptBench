@@ -1,8 +1,9 @@
 """Move complete PyTorch workloads and inputs onto a PJRT XLA device."""
 
-from collections.abc import Sequence
 import copy
 import os
+from collections.abc import Sequence
+from types import ModuleType
 
 import torch
 from torch import Tensor
@@ -20,6 +21,7 @@ else:
 
 from tobench.backends.base_adapter import BaseAdapter
 from tobench.workloads import BaseWorkload
+
 from .prepared import XLAPreparedInput
 
 
@@ -30,7 +32,7 @@ def _host_signature(inputs: Sequence[Tensor]) -> tuple:
     )
 
 
-def _require_xla():
+def _require_xla() -> tuple[ModuleType, ModuleType]:
     if torch_xla is None or xr is None:
         raise ImportError(
             "The XLA backend is optional. Install matching torch and torch-xla "
@@ -42,7 +44,10 @@ def _require_xla():
 
 class XLAAdapter(BaseAdapter[XLAPreparedInput]):
     def __init__(self, device_type: str = "CPU") -> None:
-        if not isinstance(device_type, str) or device_type.upper() not in ("CPU", "TPU"):
+        if not isinstance(device_type, str) or device_type.upper() not in (
+            "CPU",
+            "TPU",
+        ):
             raise ValueError("device_type must be CPU or TPU")
         self.device_type = device_type.upper()
 
@@ -76,5 +81,7 @@ class XLAAdapter(BaseAdapter[XLAPreparedInput]):
             host_input_signature=_host_signature(inputs),
             device=device,
             device_type=self.device_type,
-            cache_policy="fresh_temporary" if cache_path is not None else "uncontrolled",
+            cache_policy="fresh_temporary"
+            if cache_path is not None
+            else "uncontrolled",
         )
